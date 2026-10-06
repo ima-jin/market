@@ -29,6 +29,7 @@ export interface MarketEvent {
  *
  * Always resolves, never rejects — emission is fire-and-forget by contract.
  */
-export async function emitEvent(type: MarketEventType, event: MarketEvent): Promise<void> {
+export function emitEvent(type: MarketEventType, event: MarketEvent): Promise<void> {
   log.debug({ type, scope: event.scope, subject: event.subject }, 'Domain event not forwarded (kernel gap #2638)');
+  return Promise.resolve();
 }

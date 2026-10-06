@@ -13,6 +13,15 @@ function required(name: string): string {
   return value;
 }
 
+/** Strips trailing slashes with a linear scan (a `/\/+$/` regex backtracks super-linearly). */
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
 /** This app's own host, used as the `aud` for scoped app-token verification. */
 export function thisAppHost(): string {
   const base = process.env.NEXT_PUBLIC_APP_URL;
@@ -26,18 +35,18 @@ export function thisAppHost(): string {
 
 /** Public origin of this app, without a trailing slash. */
 export function appBaseUrl(): string {
-  return required('NEXT_PUBLIC_APP_URL').replace(/\/+$/, '');
+  return trimTrailingSlashes(required('NEXT_PUBLIC_APP_URL'));
 }
 
 /** Base URL of the kernel's pay service (checkout sessions). */
 export function payServiceUrl(): string {
-  return required('PAY_SERVICE_URL').replace(/\/+$/, '');
+  return trimTrailingSlashes(required('PAY_SERVICE_URL'));
 }
 
 /** Kernel base URL (public HTTP surface), or null when unset. */
 export function kernelUrl(): string | null {
   const value = process.env.IMAJIN_KERNEL_URL;
-  return value ? value.replace(/\/+$/, '') : null;
+  return value ? trimTrailingSlashes(value) : null;
 }
 
 /** Shared secret the pay service sends with payment webhooks, or null when unset. */

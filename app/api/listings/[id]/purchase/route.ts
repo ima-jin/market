@@ -93,6 +93,8 @@ export async function POST(request: NextRequest, props: RouteProps) {
 
     // 5. POST to pay service
     const appUrl = appBaseUrl();
+    const listingPath = withBasePath(`/listings/${listing.id}`);
+    const successPath = withBasePath('/checkout/success');
     const payResponse = await fetch(`${payServiceUrl()}/api/checkout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -106,8 +108,8 @@ export async function POST(request: NextRequest, props: RouteProps) {
           },
         ],
         currency: listing.currency,
-        successUrl: `${appUrl}${withBasePath('/checkout/success')}?session_id={CHECKOUT_SESSION_ID}&listing=${listing.id}`,
-        cancelUrl: `${appUrl}${withBasePath(`/listings/${listing.id}`)}`,
+        successUrl: `${appUrl}${successPath}?session_id={CHECKOUT_SESSION_ID}&listing=${listing.id}`,
+        cancelUrl: `${appUrl}${listingPath}`,
         fairManifest,
         metadata: {
           service: 'market',
