@@ -1,0 +1,165 @@
+name: SonarCloud
+
+# Mirrors the shape of ima-jin/imajin-ai's blocking `sonarcloud` CI job
+# (ima-jin/imajin-app-template#3): same zero-new-issues quality gate, no
+# `continue-on-error`. Runs unconditionally, on the bare scaffold and on a
+# filled-in fork alike — see .github/workflows/ci.yml's own detect-app guard
+# for why that split exists there but not here: a Sonar scan of a handful of
+# markdown/config files is cheap and still worth gating on.
+#
+# Requires two manual, one-time steps from a repo admin before this goes
+# green (tracked in the PR that introduced this file):
+#   1. Create the Sonar project on sonarcloud.io for this repo
+#      (sonar.organization/sonar.projectKey in sonar-project.properties).
+#   2. Add SONAR_TOKEN as a repo or org secret.
+# Until both exist, this check fails on purpose. A green check that scanned
+# nothing is a worse signal than a red one that says why.
+#
+# Fork-PR fix (ima-jin/dykil#4): a plain `pull_request` trigger never sees
+# repo/org secrets when the PR comes from a fork, so SONAR_TOKEN would be
+# empty and this job would always fail on fork PRs — and fork-and-PR is the
+# standard contribution path here, including for Jin.
+#
+# `pull_request_target` runs in the BASE repo's context instead, so secrets
+# are available — but a first attempt at this fix that checked out the PR's
+# own head SHA from a `pull_request_target`-triggered job was flagged by
+# CodeQL as a CRITICAL "checkout of untrusted code in a privileged context"
+# vulnerability (a malicious PR's checked-out files sit on disk next to
+# SONAR_TOKEN, one misbehaving analyzer/plugin away from exfiltrating it —
+# the classic "pwn request"). GitHub's own guidance for exactly this case is
+# `workflow_run`: the PR's own code is built ONLY in the unprivileged
+# `pull_request`-triggered `CI` workflow (ci.yml — no secrets, so running
+# PR-authored code there is safe), which packages the result (source +
+# coverage + PR metadata) as a build artifact. This privileged workflow reacts
+# to that workflow's completion and ONLY downloads the artifact — it never
+# runs `actions/checkout` on the PR's ref, and never executes any PR-authored
+# script itself.
+
+on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read # to download the sonar-payload artifact from the triggering CI run
+
+jobs:
+  sonarcloud-push:
+    if: github.event_name == 'push'
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scanner can assign blame and compute new-code accurately.
+          fetch-depth: 0
+
+      - name: Detect app
+        id: detect
+        run: |
+          if [ -f package.json ]; then
+            echo "has_app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_app=false" >> "$GITHUB_OUTPUT"
+            echo "No package.json (scaffold-only template) — skipping coverage generation."
+          fi
+
+      - name: Setup pnpm
+        if: steps.detect.outputs.has_app == 'true'
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node
+        if: steps.detect.outputs.has_app == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.detect.outputs.has_app == 'true'
+        # --ignore-scripts: this job only needs to run the test suite for
+        # coverage, not build native addons — no lifecycle script here is
+        # required for `pnpm run test:coverage` to succeed (verified locally).
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Generate coverage
+        # Populates coverage/lcov.info (sonar.javascript.lcov.reportPaths). A
+        # failing suite short-circuits the scan, which is fine — the gate
+        # would be judging an incomplete picture anyway.
+        if: steps.detect.outputs.has_app == 'true'
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.['test:coverage'] ? 0 : 1)"; then
+            pnpm run test:coverage
+          else
+            echo "No test:coverage script — skipping (Sonar reports 0% new-code coverage)."
+          fi
+
+      - name: Require SONAR_TOKEN
+        # A missing token must not be a silent pass — see the header comment.
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: |
+          echo "::error::SONAR_TOKEN is not set. A repo admin must create the Sonar project on sonarcloud.io for this repo and add SONAR_TOKEN as a repo/org secret (see sonar-project.properties)."
+          exit 1
+
+      - name: SonarCloud Scan
+        # Archived/deprecated upstream (SonarSource redirected it to
+        # sonarqube-scan-action), but pinned to its last release by commit SHA it
+        # remains a thin, stable wrapper around that action — kept here because
+        # it's the action named for this template's CI-parity work.
+        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sonarcloud-pr:
+    # Only for the CI workflow's own `pull_request` runs, and only once it
+    # succeeded — a failing build/test means an incomplete picture (same
+    # reasoning as the push job's coverage step above).
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Require SONAR_TOKEN
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: |
+          echo "::error::SONAR_TOKEN is not set. A repo admin must create the Sonar project on sonarcloud.io for this repo and add SONAR_TOKEN as a repo/org secret (see sonar-project.properties)."
+          exit 1
+
+      - name: Download Sonar payload
+        # No actions/checkout here on purpose — see the header comment. This
+        # downloads only the artifact ci.yml's unprivileged job already built.
+        uses: actions/download-artifact@v4
+        with:
+          name: sonar-payload
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: sonar-payload
+
+      - name: Read PR metadata
+        id: pr
+        run: |
+          meta=sonar-payload/.sonar-pr-meta.json
+          echo "number=$(jq -r '.prNumber' "$meta")" >> "$GITHUB_OUTPUT"
+          echo "headRef=$(jq -r '.headRef' "$meta")" >> "$GITHUB_OUTPUT"
+          echo "baseRef=$(jq -r '.baseRef' "$meta")" >> "$GITHUB_OUTPUT"
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectBaseDir: sonar-payload
+          args: >
+            -Dsonar.pullrequest.key=${{ steps.pr.outputs.number }}
+            -Dsonar.pullrequest.branch=${{ steps.pr.outputs.headRef }}
+            -Dsonar.pullrequest.base=${{ steps.pr.outputs.baseRef }}

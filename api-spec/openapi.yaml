@@ -1,0 +1,68 @@
+openapi: "3.1.0"
+info:
+  title: imajin-app-template
+  version: "0.1.0"
+  description: >
+    A third-party app on Imajin. This spec is served by the app itself at
+    /api/spec and aggregated by the kernel's service registry, the same way
+    every other app on the platform is discovered.
+
+servers:
+  - url: http://localhost:3000
+    description: local
+
+tags:
+  - name: app-template
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: imajin_session
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      tags: [app-template]
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  service: { type: string, example: imajin-app-template }
+                  timestamp: { type: string, format: date-time }
+
+  /api/me:
+    get:
+      operationId: getMe
+      summary: Return the signed-in caller's DID
+      tags: [app-template]
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The caller's DID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  did: { type: string }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }

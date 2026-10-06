@@ -1,0 +1,32 @@
+{
+  "$schema": "https://ima-jin.github.io/conventions/taxonomy.schema.json",
+  "description": "Canonical Imajin issue-label taxonomy. Consumed by ima-jin/imajin-ai, ima-jin/imajin-app-template, and every app that adopts the template. Seed with scripts/init-taxonomy.sh (idempotent). Prose lifecycle rules live in conventions/ISSUE-CONVENTIONS.md (AGENTS.md §7).",
+  "sets": {
+    "universal": {
+      "description": "Portable to ANY repo — type/topic/status vocabulary with no domain coupling. Every consuming repo gets these.",
+      "labels": [
+        { "name": "bug",           "color": "d73a4a", "description": "Something isn't working" },
+        { "name": "enhancement",   "color": "a2eeef", "description": "New feature or request" },
+        { "name": "epic",          "color": "7057ff", "description": "Parent tracking issue" },
+        { "name": "rfc",           "color": "1D76DB", "description": "Request for comments — architectural proposals" },
+        { "name": "tech-debt",     "color": "FBCA04", "description": "Technical debt and refactoring" },
+        { "name": "documentation", "color": "0075ca", "description": "Improvements or additions to documentation" },
+        { "name": "work-order",    "color": "0e8a16", "description": "Scoped work ticket ready for pickup" },
+        { "name": "exploration",   "color": "d4c5f9", "description": "Future concepts and research" },
+        { "name": "question",      "color": "d876e3", "description": "Further information is requested" },
+        { "name": "help wanted",   "color": "008672", "description": "Extra attention is needed" },
+        { "name": "invalid",       "color": "e4e669", "description": "This doesn't seem right" },
+        { "name": "wontfix",       "color": "ffffff", "description": "This will not be worked on" }
+      ]
+    },
+    "platform": {
+      "description": "imajin-ai / platform-specific DOMAIN labels. Do NOT seed into app repos — they only make sense in the monorepo. Kept here so the monorepo's full set has one home.",
+      "labels": [
+        { "name": "bus",          "color": "0E8A16", "description": "Event bus and reactors" },
+        { "name": "fair",         "color": "F9A825", "description": ".fair attribution and settlement" },
+        { "name": "mjn-protocol", "color": "F59E0B", "description": "MJN Protocol implementation" },
+        { "name": "events",       "color": "D4C5F9", "description": "Conferences, meetups, and events" }
+      ]
+    }
+  }
+}

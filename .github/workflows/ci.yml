@@ -1,0 +1,163 @@
+name: CI
+
+# Generic CI for Imajin app-template forks.
+#
+# Design constraints (see ima-jin/conventions §7):
+#   - Must be valid in the BARE template (scaffold-only: no package.json yet)
+#     AND real in a filled-in fork (xprize, scorecard, …). So every JS step is
+#     guarded: no package.json -> skip test/build, still run the markdown check.
+#   - Package-manager agnostic: detect npm / pnpm / yarn from the lockfile.
+#     (xprize is npm; other apps may differ — do NOT hard-code pnpm.)
+#   - The markdown control-char check ALWAYS runs — it needs no app code and is
+#     the mechanical enforcement of the "file-based issue/PR bodies" rule
+#     (conventions §7). It catches bodies mangled by inline `gh --body` escaping
+#     (BEL 0x07, form-feed 0x0C, lone CR) before they merge.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  markdown-sanity:
+    name: Markdown control-char check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail on control characters in tracked markdown
+        run: |
+          # BEL (0x07) and form-feed (0x0C) never belong in prose; a lone CR
+          # (0x0D not followed by 0x0A) is the fingerprint of inline-body escaping.
+          # These are the exact artifacts inline `gh --body` produced on PR #27.
+          hits=$(grep -rlP '[\x07\x0c]|\r(?!\n)' --include='*.md' . || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Control characters found in markdown (likely an inline 'gh --body' mangle — use --body-file). Files:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "Markdown clean — no BEL/form-feed/lone-CR control characters."
+
+  test-build:
+    name: Test + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect app
+        id: detect
+        run: |
+          if [ -f package.json ]; then
+            echo "has_app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_app=false" >> "$GITHUB_OUTPUT"
+            echo "No package.json (scaffold-only template) — skipping test/build."
+          fi
+
+      - name: Detect package manager
+        id: pm
+        if: steps.detect.outputs.has_app == 'true'
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            echo "pm=pnpm" >> "$GITHUB_OUTPUT"
+          elif [ -f yarn.lock ]; then
+            echo "pm=yarn" >> "$GITHUB_OUTPUT"
+          else
+            echo "pm=npm" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup pnpm
+        if: steps.detect.outputs.has_app == 'true' && steps.pm.outputs.pm == 'pnpm'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        if: steps.detect.outputs.has_app == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: ${{ steps.pm.outputs.pm }}
+
+      - name: Install
+        if: steps.detect.outputs.has_app == 'true'
+        run: |
+          case "${{ steps.pm.outputs.pm }}" in
+            pnpm) pnpm install --frozen-lockfile ;;
+            yarn) yarn install --frozen-lockfile ;;
+            npm)  npm ci ;;
+          esac
+
+      - name: Test
+        if: steps.detect.outputs.has_app == 'true'
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
+            ${{ steps.pm.outputs.pm }} run test
+          else
+            echo "No test script — skipping."
+          fi
+
+      - name: Build
+        if: steps.detect.outputs.has_app == 'true'
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.build ? 0 : 1)"; then
+            ${{ steps.pm.outputs.pm }} run build
+          else
+            echo "No build script — skipping."
+          fi
+
+      - name: Lint (optional)
+        if: steps.detect.outputs.has_app == 'true'
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.lint ? 0 : 1)"; then
+            ${{ steps.pm.outputs.pm }} run lint
+          else
+            echo "No lint script — skipping."
+          fi
+
+      - name: Typecheck (optional)
+        if: steps.detect.outputs.has_app == 'true'
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.typecheck ? 0 : 1)"; then
+            ${{ steps.pm.outputs.pm }} run typecheck
+          else
+            echo "No typecheck script — skipping."
+          fi
+
+      - name: Generate coverage (for the SonarCloud workflow)
+        if: steps.detect.outputs.has_app == 'true' && github.event_name == 'pull_request'
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.['test:coverage'] ? 0 : 1)"; then
+            ${{ steps.pm.outputs.pm }} run test:coverage
+          else
+            echo "No test:coverage script — skipping (Sonar reports 0% new-code coverage)."
+          fi
+
+      - name: Package Sonar payload
+        # This job runs on plain `pull_request` — no secrets, so it's safe to
+        # run PR-authored code here (already did, above). The privileged
+        # SonarCloud workflow (has SONAR_TOKEN, triggered by `workflow_run` on
+        # THIS workflow's completion — see ima-jin/dykil#4) never checks out
+        # or executes PR code itself; it only downloads this pre-built,
+        # already-safe snapshot. That split is what keeps a fork PR's
+        # SONAR_TOKEN-holding job free of the classic "checkout of untrusted
+        # code in a privileged context" vulnerability (flagged by CodeQL on
+        # an earlier version of this fix that checked out the PR head
+        # directly from a pull_request_target-triggered job).
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p /tmp/sonar-payload
+          rsync -a --exclude='.git' --exclude='node_modules' --exclude='.next' --exclude='.imajin' ./ /tmp/sonar-payload/
+          cat > /tmp/sonar-payload/.sonar-pr-meta.json <<JSON
+          {
+            "prNumber": ${{ github.event.pull_request.number }},
+            "headSha": "${{ github.event.pull_request.head.sha }}",
+            "headRef": "${{ github.event.pull_request.head.ref }}",
+            "baseRef": "${{ github.event.pull_request.base.ref }}"
+          }
+          JSON
+
+      - name: Upload Sonar payload
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-payload
+          path: /tmp/sonar-payload
+          retention-days: 1
