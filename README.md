@@ -1,4 +1,4 @@
-# &lt;App Name&gt; — a third-party app on Imajin
+# market — Imajin marketplace app (third-party app on Imajin)
 
 > Forked from [`ima-jin/imajin-app-template`](https://github.com/ima-jin/imajin-app-template). **Read
 > [`AGENTS.md`](./AGENTS.md) first** — it defines the boundary this app must not cross.
