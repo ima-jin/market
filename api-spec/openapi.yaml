@@ -1,38 +1,238 @@
 openapi: "3.1.0"
 info:
-  title: market
-  version: "0.1.0"
+  title: imajin market
+  version: "1.0.0"
   description: >
-    A third-party app on Imajin. This spec is served by the app itself at
-    /api/spec and aggregated by the kernel's service registry, the same way
-    every other app on the platform is discovered.
+    Local commerce on Imajin: listings (sale or rental) with tiered seller access
+    (off-platform contact, on-platform checkout, trust-gated), `.fair` revenue
+    distribution, and Stripe-powered checkout via the kernel's pay service.
 
+
+    This is a standalone, registered app. It is served by the app itself at
+    `/api/spec` and aggregated by the kernel's service registry.
+
+
+    **Authentication.** Every authenticated route accepts EITHER a scoped app token
+    (`Authorization: Bearer <app-token>`, audience = this app's host, minted via the
+    kernel's `POST /auth/api/tokens/app`) OR the shared kernel session cookie as a
+    fallback. Routes marked with an empty security requirement (`{}`) are public but
+    return more to a signed-in caller. All authenticated routes act as the caller's own
+    DID.
+
+
+    **Money.** `price` is an integer in the currency's smallest unit (cents for CAD/USD),
+    or whole units for zero-decimal currencies such as JPY.
 servers:
+  - url: https://market.imajin.ai
+    description: production
+  - url: https://dev-market.imajin.ai
+    description: dev
   - url: http://localhost:3000
     description: local
 
 tags:
-  - name: app-template
+  - name: market
+    description: Listings, purchase, seller settings and payment webhook
+  - name: identity
+    description: Caller identity and sign-in
+  - name: service
+    description: Health and the spec itself
 
 components:
   securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Scoped app token (audience = this app's host). Preferred. A bearer value that
+        is not a valid app token for this audience falls through to the session cookie.
     cookieAuth:
       type: apiKey
       in: cookie
       name: imajin_session
+      description: Shared kernel session cookie (fallback).
+    webhookSecret:
+      type: apiKey
+      in: header
+      name: x-webhook-secret
+      description: >
+        Shared secret held by the pay service. May alternatively be sent as `secret` in
+        the JSON body. If the app has no `WEBHOOK_SECRET` configured every request is
+        rejected.
   schemas:
     Error:
       type: object
       required: [error]
       properties:
         error: { type: string }
+    ContactInfo:
+      type: object
+      properties:
+        phone: { type: string }
+        email: { type: string }
+        whatsapp: { type: string }
+    SellerTier:
+      type: string
+      enum: [public_offplatform, public_onplatform, trust_gated]
+      description: >
+        public_offplatform: buyer contacts the seller directly (checkout is refused);
+        public_onplatform: checkout through the pay service;
+        trust_gated: hidden from anonymous callers, checkout requires a hard (keypair) identity.
+    ListingStatus:
+      type: string
+      enum: [active, paused, unavailable, sold, rented, removed]
+    ListingType:
+      type: string
+      enum: [sale, rental]
+    Listing:
+      type: object
+      properties:
+        id: { type: string, example: lst_lq3x9a1b2c3d4e5f }
+        sellerDid: { type: string }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        price:
+          type: integer
+          description: "Smallest currency unit (e.g. cents)."
+        currency:
+          type: string
+          nullable: true
+          description: "ISO 4217 code, default CAD."
+          example: CAD
+        category: { type: string, nullable: true }
+        images:
+          type: array
+          items: { type: string }
+          description: >
+            Image URLs or `asset_*` references as stored. List and detail responses
+            resolve `asset_*` references to CDN URLs (card size in lists, detail size
+            on a single listing).
+        imageAssetIds:
+          type: array
+          items: { type: string }
+        quantity:
+          type: integer
+          nullable: true
+          description: "Null means unlimited (services)."
+        type: { $ref: "#/components/schemas/ListingType" }
+        status: { $ref: "#/components/schemas/ListingStatus" }
+        sellerTier: { $ref: "#/components/schemas/SellerTier" }
+        showContactInfo: { type: boolean, nullable: true }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        contactInfo:
+          allOf:
+            - $ref: "#/components/schemas/ContactInfo"
+          nullable: true
+        trustThreshold:
+          nullable: true
+          description: "Reserved for the trust-gated tier (phase 2); stored as given."
+        rangeKm:
+          type: integer
+          nullable: true
+          description: "Discovery radius in kilometres, default 50."
+        fairManifest:
+          type: object
+          nullable: true
+          description: ".fair attribution manifest (fee chain) used at checkout and settlement."
+        metadata: { type: object }
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+    ListingDetail:
+      allOf:
+        - $ref: "#/components/schemas/Listing"
+        - type: object
+          properties:
+            imageRefs:
+              type: array
+              items: { type: string }
+              description: "The stored image references, unresolved."
+    ListingPreview:
+      type: object
+      description: Compact listing returned by the seller profile endpoints.
+      properties:
+        id: { type: string }
+        title: { type: string }
+        price: { type: integer }
+        currency: { type: string, nullable: true }
+        images:
+          type: array
+          items: { type: string }
+        category: { type: string, nullable: true }
+        sellerTier: { $ref: "#/components/schemas/SellerTier" }
+        createdAt: { type: string, format: date-time, nullable: true }
+    ListingPage:
+      type: object
+      properties:
+        listings:
+          type: array
+          items: { $ref: "#/components/schemas/Listing" }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        hasMore: { type: boolean }
+    SellerSettings:
+      type: object
+      properties:
+        showMarketItems:
+          type: boolean
+          description: "Whether the seller's active listings appear on their public profile."
+  parameters:
+    ListingId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    Page:
+      name: page
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, default: 1 }
+      description: "Non-numeric values fall back to 1."
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: "Clamped to 1-100. Non-numeric values fall back to 20."
+    Sort:
+      name: sort
+      in: query
+      required: false
+      schema: { type: string, enum: [newest, price_asc, price_desc], default: newest }
+      description: "Any other value sorts newest first."
+  responses:
+    Unauthorized:
+      description: Missing, invalid or expired credentials
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Not allowed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ServerError:
+      description: Unexpected failure
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
 
 paths:
   /api/health:
     get:
       operationId: getHealth
-      summary: Health check
-      tags: [app-template]
+      summary: Service health check
+      tags: [service]
       responses:
         "200":
           description: Service is healthy
@@ -45,24 +245,563 @@ paths:
                   service: { type: string, example: market }
                   timestamp: { type: string, format: date-time }
 
+  /api/spec:
+    get:
+      operationId: getSpec
+      summary: This OpenAPI document
+      tags: [service]
+      responses:
+        "200":
+          description: The OpenAPI document
+          content:
+            text/yaml:
+              schema: { type: string }
+
   /api/me:
     get:
       operationId: getMe
-      summary: Return the signed-in caller's DID
-      tags: [app-template]
+      summary: The current caller's DID, or null
+      description: >
+        Never fails on missing credentials: an unauthenticated caller gets `{ "did": null }`.
+        `scopeLabel` is always null (acting-as-scope is not carried by app tokens; see
+        ima-jin/imajin-ai#2639).
+      tags: [identity]
       security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - {}
+      responses:
+        "200":
+          description: Caller identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  did: { type: string, nullable: true }
+                  scopeLabel: { type: string, nullable: true }
+
+  /api/auth/callback:
+    get:
+      operationId: authCallback
+      summary: Redirect target for the Sign in with Imajin flow
+      description: >
+        Handled by `@ima-jin/auth-client`. Verifies the consent attestation, sets the
+        session cookie and redirects. On failure redirects to `/?auth_error=<reason>`
+        (`missing_params`, `attestation_revoked`, `profile_fetch_failed`, `network_error`).
+      tags: [identity]
+      parameters:
+        - name: attestation_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: user_did
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect
+
+  /api/auth/session:
+    get:
+      operationId: authSession
+      summary: The signed-in user from the session cookie, or null
+      tags: [identity]
+      responses:
+        "200":
+          description: Session user, or `null` when not signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                properties:
+                  did: { type: string }
+
+  /api/auth/logout:
+    post:
+      operationId: authLogout
+      summary: Clear the session cookie
+      tags: [identity]
+      responses:
+        "302":
+          description: Redirect
+
+  /api/listings:
+    get:
+      operationId: listListings
+      summary: Browse and search listings
+      description: >
+        Public. Anonymous callers see only `active`, non-`trust_gated` listings. A signed-in
+        caller also sees `trust_gated` listings, and a seller filtering by their own
+        `seller_did` sees every status unless `status` is given.
+      tags: [market]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - {}
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema: { type: string }
+          description: "Case-insensitive partial match."
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, default: active }
+        - name: currency
+          in: query
+          required: false
+          schema: { type: string }
+          description: "ISO 4217 code, matched upper-cased."
+        - name: seller_tier
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/SellerTier" }
+        - name: seller_did
+          in: query
+          required: false
+          schema: { type: string }
+        - name: exclude
+          in: query
+          required: false
+          schema: { type: string }
+          description: "A listing id to leave out (e.g. 'more from this seller')."
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of listings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ListingPage" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      operationId: createListing
+      summary: Create a listing
+      description: >
+        The listing is owned by the caller's DID and gets a `.fair` manifest built from the
+        node's fee configuration. The default tier (`public_offplatform`) requires at least
+        one `contactInfo` field.
+      tags: [market]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, price]
+              properties:
+                title: { type: string }
+                description: { type: string }
+                price: { type: integer, minimum: 1 }
+                currency: { type: string, default: CAD }
+                category: { type: string }
+                images:
+                  type: array
+                  items: { type: string }
+                  maxItems: 8
+                imageAssetIds:
+                  type: array
+                  items: { type: string }
+                quantity: { type: integer, default: 1 }
+                type: { $ref: "#/components/schemas/ListingType" }
+                sellerTier:
+                  allOf:
+                    - $ref: "#/components/schemas/SellerTier"
+                  default: public_offplatform
+                contactInfo: { $ref: "#/components/schemas/ContactInfo" }
+                showContactInfo: { type: boolean, default: false }
+                trustThreshold: {}
+                rangeKm: { type: integer, default: 50 }
+                expiresAt: { type: string, format: date-time }
+                metadata: { type: object }
+      responses:
+        "201":
+          description: Listing created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Listing" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/listings/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ListingId"
+    get:
+      operationId: getListing
+      summary: A single listing
+      description: >
+        Public, except `trust_gated` listings which return 403 `{ "gated": true }` to
+        anonymous callers.
+      tags: [market]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - {}
+      responses:
+        "200":
+          description: Listing detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ListingDetail" }
+        "403":
+          description: Trust-gated listing and the caller is not signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  gated: { type: boolean, example: true }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      operationId: updateListing
+      summary: Update a listing (seller only)
+      description: >
+        Only the fields below are updatable. Changing `price`, `sellerTier`, or the seller
+        rebuilds the `.fair` manifest (a failed rebuild keeps the old manifest).
+
+
+        Allowed status transitions: active -> paused | sold | rented | unavailable;
+        paused -> active | removed; unavailable -> active | removed;
+        sold -> removed; rented -> removed; removed -> (none).
+      tags: [market]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description: { type: string }
+                price: { type: integer }
+                currency: { type: string }
+                category: { type: string }
+                images:
+                  type: array
+                  items: { type: string }
+                  maxItems: 8
+                imageAssetIds:
+                  type: array
+                  items: { type: string }
+                quantity: { type: integer }
+                type: { $ref: "#/components/schemas/ListingType" }
+                status: { $ref: "#/components/schemas/ListingStatus" }
+                sellerTier: { $ref: "#/components/schemas/SellerTier" }
+                contactInfo: { $ref: "#/components/schemas/ContactInfo" }
+                showContactInfo: { type: boolean }
+                rangeKm: { type: integer }
+                expiresAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: "Empty or null clears the expiry."
+                metadata: { type: object }
+      responses:
+        "200":
+          description: Updated listing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Listing" }
+        "400":
+          description: Invalid status transition or more than 8 images
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      operationId: removeListing
+      summary: Soft-delete a listing (seller only)
+      description: Sets `status` to `removed`.
+      tags: [market]
+      security:
+        - bearerAuth: []
         - cookieAuth: []
       responses:
         "200":
-          description: The caller's DID
+          description: Listing removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/listings/{id}/purchase:
+    parameters:
+      - $ref: "#/components/parameters/ListingId"
+    post:
+      operationId: purchaseListing
+      summary: Start a checkout session via the pay service
+      description: >
+        Anonymous buyers are allowed except for `trust_gated` listings, which require a
+        signed-in hard (keypair) identity. Refused for `public_offplatform` listings and for
+        listings that are not `active`. The listing's `.fair` manifest (or a 99/1
+        seller/platform split when it has none) is sent to the pay service.
+      tags: [market]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity:
+                  type: number
+                  exclusiveMinimum: 0
+                  default: 1
+                  description: "Ignored unless a positive number."
+      responses:
+        "200":
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+                    description: "Hosted checkout URL; redirect the buyer here."
+                  sessionId: { type: string }
+        "400":
+          description: Listing not active, or requires direct contact with the seller
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: trust_gated listing and the buyer is not a verified hard identity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500":
+          description: Pay service error or unexpected failure
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/my/listings:
+    get:
+      operationId: getMyListings
+      summary: The caller's own listings, every status
+      tags: [market]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/ListingStatus" }
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of the caller's listings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ListingPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/resolve/{did}:
+    get:
+      operationId: resolveIdentity
+      summary: Resolve a DID to its public handle and display name
+      description: Server-side proxy to the kernel's public profile route.
+      tags: [market]
+      parameters:
+        - name: did
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Public identity
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   did: { type: string }
+                  handle: { type: string }
+                  displayName: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/seller/settings:
+    get:
+      operationId: getSellerSettings
+      summary: The caller's seller settings
+      description: "Creates a default row (showMarketItems false) when none exists."
+      tags: [market]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Seller settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SellerSettings" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      operationId: updateSellerSettings
+      summary: Update the caller's seller settings
+      tags: [market]
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [showMarketItems]
+              properties:
+                showMarketItems: { type: boolean }
+      responses:
+        "200":
+          description: Settings updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SellerSettings" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/seller/handle/{handle}:
+    get:
+      operationId: getSellerByHandle
+      summary: A seller's active listings, by handle
+      description: >
+        Resolves the handle to a DID through the kernel's public profile route, then returns
+        up to 100 active listings. Not gated by the seller's profile-integration setting.
+      tags: [market]
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Seller and listings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  seller:
+                    type: object
+                    properties:
+                      handle: { type: string }
+                      displayName: { type: string }
+                      did: { type: string }
+                  listings:
+                    type: array
+                    items: { $ref: "#/components/schemas/ListingPreview" }
+                  enabled: { type: boolean, example: true }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/seller/{did}/profile-listings:
+    get:
+      operationId: getProfileListings
+      summary: A seller's active listings for their public profile
+      description: >
+        Public. Returns `{ listings: [], enabled: false }` unless the seller turned on
+        `showMarketItems`. Up to 8, newest first.
+      tags: [market]
+      parameters:
+        - name: did
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Profile listings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  listings:
+                    type: array
+                    items: { $ref: "#/components/schemas/ListingPreview" }
+                  enabled: { type: boolean }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/webhook:
+    post:
+      operationId: handleWebhook
+      summary: Payment events from the pay service
+      description: >
+        Authenticated by a shared secret, not by a user credential. On a successful payment
+        (`type: payment.succeeded`, or `status: paid | succeeded`) a single-quantity or
+        unlimited listing is marked `sold`; a multi-quantity listing is decremented (and marked
+        `sold` at zero). Any other event is acknowledged and ignored.
+      tags: [market]
+      security:
+        - webhookSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type: { type: string, example: payment.succeeded }
+                status: { type: string, example: paid }
+                secret:
+                  type: string
+                  description: "Alternative to the x-webhook-secret header."
+                metadata:
+                  type: object
+                  properties:
+                    listingId: { type: string }
+                    buyerDid: { type: string }
+                    amount: { type: number }
+                    currency: { type: string }
+      responses:
+        "200":
+          description: Received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: boolean }
         "401":
-          description: Not authenticated
+          description: Missing or wrong secret (or none configured)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/ServerError" }

@@ -96,6 +96,12 @@ jobs:
 
       - name: Build
         if: steps.detect.outputs.has_app == 'true'
+        # `next build` imports every route module while collecting page data, and
+        # src/db/schema.ts + src/db/index.ts require these two at import time
+        # (docs/MIGRATIONS.md). Nothing connects: the build never runs a query.
+        env:
+          APP_DB_SCHEMA: market
+          DATABASE_URL: postgres://localhost:5432/market_build
         run: |
           if node -e "process.exit(require('./package.json').scripts?.build ? 0 : 1)"; then
             ${{ steps.pm.outputs.pm }} run build

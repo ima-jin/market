@@ -10,4 +10,12 @@ describe('GET /api/spec', () => {
     expect(text).toContain('openapi:');
     expect(text).toContain('/api/health');
   });
+
+  it('serves the market API, not the template placeholder', async () => {
+    const text = await (await GET()).text();
+
+    expect(text).toContain('title: imajin market');
+    expect(text).toContain('/api/listings/{id}/purchase');
+    expect(text).toContain('/api/webhook');
+  });
 });
