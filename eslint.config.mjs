@@ -12,6 +12,14 @@ const compat = new FlatCompat({
 const eslintConfig = [
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
   {
+    rules: {
+      // Listing images are user-supplied URLs on arbitrary hosts (or the media
+      // service's CDN); next/image can only optimize an allow-listed set of
+      // hosts, so plain <img> is deliberate here, as it was in the kernel app.
+      '@next/next/no-img-element': 'off',
+    },
+  },
+  {
     ignores: ['migrations/**', '.next/**', 'node_modules/**', 'next-env.d.ts', 'coverage/**'],
   },
 ];

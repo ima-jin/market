@@ -105,3 +105,24 @@ curl "${IMAJIN_AUTH_URL}/api/registry/apps?owner=me" \
 
 Revoking or rotating an app's credentials is done through the kernel's admin/developer surface,
 not by this template — see the kernel's own `/auth/developer/apps` UI.
+
+## 6. This app's own inbound auth (scoped app tokens)
+
+Every authenticated route goes through one function, `authenticate()`
+(`src/lib/auth/authenticate.ts`), which wraps `@ima-jin/auth`'s `requireSessionOrAppToken`
+(the ima-jin/imajin-ai#1974 pattern). A caller mints a token for this app's host:
+
+```bash
+curl -X POST "${IMAJIN_AUTH_URL}/api/tokens/app" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: <caller's own kernel session cookie>" \
+  -d '{ "aud": "market.imajin.ai", "scopes": [] }'
+```
+
+and calls this app with `Authorization: Bearer <token>`. The audience must equal the host of
+`NEXT_PUBLIC_APP_URL`. The shared session cookie is accepted as a fallback. Set `AUTH_SERVICE_URL`
+(see `.env.example`); `@ima-jin/auth` uses it to validate the cookie fallback.
+
+Two kernel-side limits are tracked as issues: app tokens carry no acting-as-scope (ima-jin/imajin-ai#2639)
+and no identity tier (ima-jin/imajin-ai#2640), so purchasing a `trust_gated` listing currently requires
+the session-cookie path.
