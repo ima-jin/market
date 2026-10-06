@@ -51,6 +51,14 @@ kernel's shared `migrations/0001_seed.sql` (ima-jin/imajin-ai#2509): `market.lis
 - Existing data is not moved by this repo: this step only defines the schema. Cut-over of live
   rows is a separate step of ima-jin/imajin-ai#1989.
 
+## Baselining an existing database (prod/dev)
+
+Prod and dev already hold the `market` schema (created by the kernel's shared seed). Running `pnpm db:migrate` there
+would fail on `CREATE TABLE`, so `scripts/migrate-baseline.mjs` first proves the live schema matches migration 0000
+and records 0000 as applied in `market.__drizzle_migrations`. It is idempotent, refuses (exit 1) on any mismatch and
+never drops, truncates or alters anything. `scripts/deploy.sh` runs it before every `drizzle-kit migrate`. Details:
+[`DEPLOY.md`](./DEPLOY.md#migration-baseline).
+
 ## What this app does not do
 
 - It does not squash, rewrite, or otherwise manage the kernel's own migration history — that is

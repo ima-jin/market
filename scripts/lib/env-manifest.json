@@ -1,0 +1,378 @@
+[
+  {
+    "name": "DATABASE_URL",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "Postgres connection string for this app's own database (also read by drizzle-kit and scripts/migrate-baseline.mjs). Never a kernel database.",
+    "dev": "postgres://<role>:<password>@localhost:5432/<dev_db>",
+    "prod": "postgres://<role>:<password>@localhost:5432/<prod_db>",
+    "secret": true
+  },
+  {
+    "name": "APP_DB_SCHEMA",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "The one Postgres schema this app owns. Fixed to `market` — the existing prod/dev schema; never change it (it would orphan migration state).",
+    "dev": "market",
+    "prod": "market"
+  },
+  {
+    "name": "AUTH_SERVICE_URL",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "Kernel auth service base URL, including the /auth prefix. Read by @ima-jin/auth for session and app-token verification.",
+    "dev": "https://dev-jin.imajin.ai/auth",
+    "prod": "https://jin.imajin.ai/auth"
+  },
+  {
+    "name": "IMAJIN_AUTH_URL",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "Kernel base URL for the Sign-in-with-Imajin flow (src/lib/auth-config.ts). Same host as IMAJIN_KERNEL_URL.",
+    "dev": "https://dev-jin.imajin.ai",
+    "prod": "https://jin.imajin.ai"
+  },
+  {
+    "name": "IMAJIN_KERNEL_URL",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "Kernel base URL (no path). Used by loadAppSigningKey() to fetch this app's signing key at boot, and by the kernel client.",
+    "dev": "https://dev-jin.imajin.ai",
+    "prod": "https://jin.imajin.ai"
+  },
+  {
+    "name": "PAY_SERVICE_URL",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "Kernel pay service base URL, including the /pay prefix. Checkout sessions are created with POST {PAY_SERVICE_URL}/api/checkout; purchases fail with a 500 while it is unset.",
+    "dev": "https://dev-jin.imajin.ai/pay",
+    "prod": "https://jin.imajin.ai/pay"
+  },
+  {
+    "name": "WEBHOOK_SECRET",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "Shared secret the pay service sends with payment webhooks (POST /api/webhook). The webhook rejects every request while it is unset. 32+ random bytes; set the same value on the pay side. Never the dev value on prod.",
+    "dev": "(32+ random bytes — openssl rand -hex 32)",
+    "prod": "(32+ random bytes — openssl rand -hex 32)",
+    "secret": true
+  },
+  {
+    "name": "SESSION_SECRET",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "Signs this app's session cookie (HS256, @ima-jin/auth-client). 32+ random bytes; distinct per environment.",
+    "dev": "(32+ random bytes — openssl rand -hex 32)",
+    "prod": "(32+ random bytes — openssl rand -hex 32)",
+    "secret": true
+  },
+  {
+    "name": "NEXT_PUBLIC_BASE_PATH",
+    "status": "required",
+    "phase": "build",
+    "summary": "Reverse-proxy path prefix the app is mounted under. Must be `/market`. Baked at build time; rebuild after changing.",
+    "dev": "/market",
+    "prod": "/market"
+  },
+  {
+    "name": "NEXT_PUBLIC_APP_URL",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "This app's public URL. Its HOST is the `aud` used to verify scoped app tokens — it must match a host in this app's registered tokenAudiences (operator-confirmed at registration).",
+    "dev": "https://dev-jin.imajin.ai/market",
+    "prod": "https://jin.imajin.ai/market"
+  },
+  {
+    "name": "NEXT_PUBLIC_AUTH_URL",
+    "status": "required",
+    "phase": "build",
+    "summary": "Public URL of the kernel auth service the browser talks to (the \"enter your email to buy\" gate: GET /api/session, POST /api/onboard). Includes the /auth prefix. Baked at build time.",
+    "dev": "https://dev-jin.imajin.ai/auth",
+    "prod": "https://jin.imajin.ai/auth"
+  },
+  {
+    "name": "IMAJIN_APP_DID",
+    "status": "required",
+    "phase": "runtime",
+    "summary": "This app's own did:imajin:… from registration (docs/REGISTRATION.md). instrumentation.ts refuses to boot without it. Not a secret. Separate DID for dev and prod.",
+    "dev": "did:imajin:<dev app DID>",
+    "prod": "did:imajin:<prod app DID>"
+  },
+  {
+    "name": "NEXT_PUBLIC_SERVICE_PREFIX",
+    "status": "optional",
+    "phase": "build",
+    "summary": "Read by @ima-jin/config to build kernel/chat/media public URLs, including the /dashboard -> kernel hub redirect in middleware.ts. MUST be `dev-` on the dev instance (otherwise the redirect points at the prod kernel); leave unset on prod. Baked at build time; rebuild after changing.",
+    "dev": "dev-",
+    "prod": "(unset)"
+  },
+  {
+    "name": "NEXT_PUBLIC_DOMAIN",
+    "status": "optional",
+    "phase": "build",
+    "summary": "Companion to NEXT_PUBLIC_SERVICE_PREFIX (default imajin.ai). Leave at the default on both environments.",
+    "dev": "imajin.ai",
+    "prod": "imajin.ai"
+  },
+  {
+    "name": "NEXT_PUBLIC_MEDIA_URL",
+    "status": "optional",
+    "phase": "build",
+    "summary": "Public base URL of the kernel media service, used to turn asset_* image refs into URLs and as the image-upload target (ima-jin/imajin-ai#2637). When unset it is derived from the service prefix/domain.",
+    "dev": "https://dev-jin.imajin.ai/media",
+    "prod": "https://jin.imajin.ai/media"
+  },
+  {
+    "name": "NEXT_PUBLIC_NODE_DID",
+    "status": "optional",
+    "phase": "build",
+    "summary": "This node's DID, shown in the .fair attribution accordion on a listing. Optional.",
+    "dev": "(optional)",
+    "prod": "(optional)"
+  },
+  {
+    "name": "IMAJIN_ENV",
+    "status": "optional",
+    "phase": "runtime",
+    "summary": "Selects the kernel session cookie name in @ima-jin/config: `dev` -> imajin_session_dev, anything else -> imajin_session. MUST be `dev` on the dev instance (a production build is NODE_ENV=production, which does not imply dev); leave unset on prod.",
+    "dev": "dev",
+    "prod": "(unset)"
+  },
+  {
+    "name": "IMAJIN_APP_CLAIM_CODE",
+    "status": "first-boot",
+    "phase": "runtime",
+    "summary": "One-time code from the kernel operator's /jin approval card. Needed only on the very first boot (no keystore yet) or a lost-keystore rebind; delete it after the first successful boot.",
+    "dev": "(only on first boot)",
+    "prod": "(only on first boot)",
+    "secret": true
+  },
+  {
+    "name": "IMAJIN_APP_KEYSTORE",
+    "status": "optional",
+    "phase": "runtime",
+    "summary": "Path of this app's 0600 bootstrap keystore (never the vault key itself). Default ./.imajin/keystore.json relative to the process cwd. Must be writable, persist across deploys, and be separate for dev and prod.",
+    "dev": "/home/jin/.imajin/market.dev.keystore.json",
+    "prod": "/home/jin/.imajin/market.prod.keystore.json"
+  },
+  {
+    "name": "IMAJIN_APP_PRIVATE_KEY",
+    "status": "forbidden",
+    "phase": "runtime",
+    "summary": "Removed. The app throws at boot if this is set — the signing key comes from loadAppSigningKey(), never from env.",
+    "dev": "(never set)",
+    "prod": "(never set)",
+    "secret": true
+  },
+  {
+    "name": "PORT",
+    "status": "runtime-set",
+    "phase": "runtime",
+    "summary": "Listen port. Set by the pm2 ecosystem entry (prod 7104, dev 3104); only used directly by `pnpm dev`.",
+    "dev": "3104",
+    "prod": "7104"
+  },
+  {
+    "name": "NODE_ENV",
+    "status": "runtime-set",
+    "phase": "runtime",
+    "summary": "Set to `production` by the pm2 entry and by `next build`/`next start`. Do not set it in the env file.",
+    "dev": "production",
+    "prod": "production"
+  },
+  {
+    "name": "NEXT_RUNTIME",
+    "status": "runtime-set",
+    "phase": "runtime",
+    "summary": "Injected by Next.js; instrumentation.ts only bootstraps the signing key when it is `nodejs`. Never set by hand.",
+    "dev": "(set by Next.js)",
+    "prod": "(set by Next.js)"
+  },
+  {
+    "name": "LOG_LEVEL",
+    "status": "optional",
+    "phase": "runtime",
+    "summary": "pino log level for @ima-jin/logger (default info). Output is stdout only; pm2 captures it.",
+    "dev": "debug",
+    "prod": "info"
+  },
+  {
+    "name": "ENABLE_REQUEST_LOG",
+    "status": "optional",
+    "phase": "runtime",
+    "summary": "Logger request-log switch. Leave unset: this app wires no log sink (AGENTS.md — stdout only).",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "ENABLE_APP_LOG",
+    "status": "optional",
+    "phase": "runtime",
+    "summary": "Logger persisted-log switch. Leave unset: this app never persists logs to a database.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "LOG_DB_TRANSPORT",
+    "status": "optional",
+    "phase": "runtime",
+    "summary": "Logger DB-transport switch. Leave unset: logging must never touch a data store (AGENTS.md).",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "APP_LOG_LEVEL",
+    "status": "optional",
+    "phase": "runtime",
+    "summary": "Minimum level the logger would persist (default warn). Inert while persistence is off.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "ATTESTATION_INTERNAL_API_KEY",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "@ima-jin/auth act-as / attestation calls. market exercises neither; leave unset. Never hand-mint it.",
+    "dev": "(unset)",
+    "prod": "(unset)",
+    "secret": true
+  },
+  {
+    "name": "AUTH_INTERNAL_API_KEY",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "Deprecated @ima-jin/auth internal key (agent delegation). Not used by market; leave unset.",
+    "dev": "(unset)",
+    "prod": "(unset)",
+    "secret": true
+  },
+  {
+    "name": "PROFILE_SERVICE_URL",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "@ima-jin/auth credential resolution. Not used by market; leave unset.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "PROFILE_INTERNAL_API_KEY",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "@ima-jin/auth credential resolution key. Not used by market; leave unset.",
+    "dev": "(unset)",
+    "prod": "(unset)",
+    "secret": true
+  },
+  {
+    "name": "NODE_DID",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "@ima-jin/auth node-act-as check (kernel node DID). Not used by market; leave unset.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "APP_URL",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "@ima-jin/auth fallback origin for redirects. market passes publicUrl explicitly (NEXT_PUBLIC_APP_URL); leave unset.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "NEXT_PUBLIC_BASE_URL",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "@ima-jin/auth fallback origin for redirects (after APP_URL). market does not rely on it; leave unset.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "SESSION_COOKIE_SCOPE",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "@ima-jin/config cookie-scope switch (`host` = host-only cookie). Leave unset: the shared kernel session cookie is the fallback auth path (docs/REGISTRATION.md section 6).",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "REGISTRY_SERVICE_URL",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "@ima-jin/config registry lookup. Not used by market; leave unset.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "REGISTRY_URL",
+    "status": "dependency",
+    "phase": "runtime",
+    "summary": "Deprecated alias of REGISTRY_SERVICE_URL in @ima-jin/config. Not used by market; leave unset.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "NEXT_PUBLIC_NOTIFY_URL",
+    "status": "dependency",
+    "phase": "build",
+    "summary": "@ima-jin/ui header: when set, shows the notification bell wired to the kernel notify service. Leave unset (no bell).",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "NEXT_PUBLIC_VERSION",
+    "status": "optional",
+    "phase": "build",
+    "summary": "@ima-jin/ui footer build stamp: version label (default `dev`). Cosmetic; may be set at build time.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "NEXT_PUBLIC_BUILD_HASH",
+    "status": "optional",
+    "phase": "build",
+    "summary": "@ima-jin/ui footer build stamp: commit hash (default `local`). Cosmetic; may be set at build time.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "NEXT_PUBLIC_COMMIT_COUNT",
+    "status": "optional",
+    "phase": "build",
+    "summary": "@ima-jin/ui footer build stamp: commit count (default empty). Cosmetic; may be set at build time.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  },
+  {
+    "name": "NEXT_PUBLIC_IMAJIN_AUTH_URL",
+    "status": "template-unused",
+    "phase": "build",
+    "summary": "Listed in the app template; no code in this repo reads it. Safe to omit.",
+    "dev": "https://dev-jin.imajin.ai",
+    "prod": "https://jin.imajin.ai"
+  },
+  {
+    "name": "NEXT_PUBLIC_IMAJIN_APP_ID",
+    "status": "template-unused",
+    "phase": "build",
+    "summary": "Listed in the app template (registry `app_…` id); no code in this repo reads it. Safe to omit.",
+    "dev": "(optional)",
+    "prod": "(optional)"
+  },
+  {
+    "name": "IMAJIN_APP_ATTESTATION_ID",
+    "status": "template-unused",
+    "phase": "runtime",
+    "summary": "Listed in the app template (service-level attestation id for kernel calls outside a user session); no code in this repo reads it. Safe to omit.",
+    "dev": "(optional)",
+    "prod": "(optional)"
+  },
+  {
+    "name": "VERIFY_BOOT_PORT",
+    "status": "optional",
+    "phase": "script",
+    "summary": "Reserved for a CI boot check; unused today. Not used in deployment.",
+    "dev": "(unset)",
+    "prod": "(unset)"
+  }
+]
