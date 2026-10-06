@@ -1,4 +1,4 @@
-# &lt;App Name&gt; — a third-party app on Imajin
+# market — Imajin marketplace app (third-party app on Imajin)
 
 > Forked from [`ima-jin/imajin-app-template`](https://github.com/ima-jin/imajin-app-template). **Read
 > [`AGENTS.md`](./AGENTS.md) first** — it defines the boundary this app must not cross.
@@ -41,7 +41,7 @@ The kernel verifies both and returns `{ appDid, userDid, scopes }` — that trip
    [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md)):
    ```bash
    pnpm install
-   pnpm db:migrate
+   pnpm db:migrate        # creates the `market` schema (APP_DB_SCHEMA=market) and its tables
    ```
 5. **Run it**:
    ```bash
