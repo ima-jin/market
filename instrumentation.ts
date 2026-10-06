@@ -10,6 +10,15 @@
  * bootstrap keystore on every later boot; see #7 and docs/REGISTRATION.md).
  * Refusing to boot on a misconfigured env catches the problem immediately
  * instead of serving requests no kernel call could ever authenticate.
+ *
+ * Unclaimed boot mode (#2427): `bootstrapSigningIdentity()` no longer
+ * throws when neither a keystore nor `IMAJIN_APP_CLAIM_CODE` is present —
+ * it boots without a signing identity, and `middleware.ts` serves a
+ * minimal "not claimed yet" page for every route except `/claim`,
+ * `/api/claim`, and `/api/health` until an operator pastes a claim code at
+ * `/claim`. `IMAJIN_APP_DID` is still required unconditionally: it's a
+ * registration concern (assigned when the kernel provisions this app),
+ * independent of whether the signing-key claim has happened yet.
  */
 export function validateSigningKeyBootEnv(): void {
   if (process.env.IMAJIN_APP_PRIVATE_KEY) {

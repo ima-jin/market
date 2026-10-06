@@ -148,17 +148,27 @@ jobs:
         # an earlier version of this fix that checked out the PR head
         # directly from a pull_request_target-triggered job).
         if: github.event_name == 'pull_request'
+        # Untrusted event context (branch names are attacker-controlled) goes
+        # through env: and is quoted in the script — never interpolated with
+        # ${{ }} inside run:. jq does the JSON escaping.
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           mkdir -p /tmp/sonar-payload
           rsync -a --exclude='.git' --exclude='node_modules' --exclude='.next' --exclude='.imajin' ./ /tmp/sonar-payload/
-          cat > /tmp/sonar-payload/.sonar-pr-meta.json <<JSON
-          {
-            "prNumber": ${{ github.event.pull_request.number }},
-            "headSha": "${{ github.event.pull_request.head.sha }}",
-            "headRef": "${{ github.event.pull_request.head.ref }}",
-            "baseRef": "${{ github.event.pull_request.base.ref }}"
-          }
-          JSON
+          # NOT a dotfile: upload-artifact@v4 skips hidden files by default, which
+          # silently dropped this file and made every PR scan upload as a main
+          # analysis (empty sonar.pullrequest.* args).
+          jq -n \
+            --argjson prNumber "$PR_NUMBER" \
+            --arg headSha "$PR_HEAD_SHA" \
+            --arg headRef "$PR_HEAD_REF" \
+            --arg baseRef "$PR_BASE_REF" \
+            '{prNumber: $prNumber, headSha: $headSha, headRef: $headRef, baseRef: $baseRef}' \
+            > /tmp/sonar-payload/sonar-pr-meta.json
 
       - name: Upload Sonar payload
         if: github.event_name == 'pull_request'
@@ -166,10 +176,8 @@ jobs:
         with:
           name: sonar-payload
           path: /tmp/sonar-payload
-          # .sonar-pr-meta.json is a dotfile; upload-artifact@v4 skips hidden files by
-          # default, which left the SonarCloud workflow scanning with an empty PR key.
-          include-hidden-files: true
           retention-days: 1
+          if-no-files-found: error
 
   migrations:
     name: Migrations (real Postgres)

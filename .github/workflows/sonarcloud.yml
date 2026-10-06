@@ -147,11 +147,36 @@ jobs:
 
       - name: Read PR metadata
         id: pr
+        # Fails loudly on missing/odd metadata: with empty sonar.pullrequest.*
+        # args the scanner silently falls back to a MAIN-branch analysis, which
+        # overwrites main with PR code (ima-jin/imajin-app-template#10).
+        # The file comes from an artifact built by PR-authored code, so treat
+        # every value as untrusted and allow-list its characters before it
+        # reaches the scanner args.
         run: |
-          meta=sonar-payload/.sonar-pr-meta.json
-          echo "number=$(jq -r '.prNumber' "$meta")" >> "$GITHUB_OUTPUT"
-          echo "headRef=$(jq -r '.headRef' "$meta")" >> "$GITHUB_OUTPUT"
-          echo "baseRef=$(jq -r '.baseRef' "$meta")" >> "$GITHUB_OUTPUT"
+          meta=sonar-payload/sonar-pr-meta.json
+          if [ ! -s "$meta" ]; then
+            echo "::error::$meta missing or empty — refusing to run a Sonar scan without PR parameters (it would upload as a main-branch analysis)."
+            exit 1
+          fi
+          number=$(jq -r '.prNumber // empty' "$meta")
+          headRef=$(jq -r '.headRef // empty' "$meta")
+          baseRef=$(jq -r '.baseRef // empty' "$meta")
+          if ! [[ "$number" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid PR number in metadata."
+            exit 1
+          fi
+          for ref in "$headRef" "$baseRef"; do
+            if ! [[ "$ref" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+              echo "::error::Missing or unsafe branch name in PR metadata."
+              exit 1
+            fi
+          done
+          {
+            echo "number=$number"
+            echo "headRef=$headRef"
+            echo "baseRef=$baseRef"
+          } >> "$GITHUB_OUTPUT"
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0

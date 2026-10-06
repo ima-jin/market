@@ -23,7 +23,8 @@ file before touching code — it defines the boundary you must not cross and the
 
 ## 0. Quick start for a fresh fork
 
-1. Use this template.
+1. Clone the template and rename it — **not** GitHub's "Use this template" button, which drops the template's
+   history (see the README's "Creating a new app").
 2. Register the app with the kernel — [`docs/REGISTRATION.md`](./docs/REGISTRATION.md).
 3. Set env: `cp .env.example .env.local` and fill it in (the app refuses to start without
    `IMAJIN_APP_DID` — see `instrumentation.ts`).
@@ -166,8 +167,10 @@ scripts/sync-from-template.sh --check   # see what upstream changes are pending
 scripts/sync-from-template.sh           # merge template/main onto a sync branch → open a PR
 ```
 
-The first run joins the two histories once (`--allow-unrelated-histories`); every run after is a normal merge. On the
-rare conflict (almost always §8), **keep your §8** and take the template's §1–§7. See the script header for details.
+An app cloned from the template shares its history, so every run is a normal merge. An app created with "Use this
+template" must be joined **once** first (`git merge -s ours --allow-unrelated-histories <generating-template-sha>`,
+history-only); the script detects that and prints the steps. On the rare conflict (almost always §8), **keep your
+§8** and take the template's §1–§7. See the script header for details.
 
 ---
 

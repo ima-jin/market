@@ -244,6 +244,57 @@ paths:
                   status: { type: string, example: ok }
                   service: { type: string, example: market }
                   timestamp: { type: string, format: date-time }
+                  claimed:
+                    type: boolean
+                    description: >
+                      False in unclaimed boot mode (#2427) — this app has no
+                      signing identity yet. See /claim.
+
+  /api/claim:
+    post:
+      operationId: postClaim
+      summary: Redeem this app's one-time claim code (operator-only, unclaimed boot mode)
+      description: >
+        Backs the operator-facing /claim page. Exchanges the one-time claim
+        code from the kernel's /jin approval card for this app's signing
+        key, persists the local bootstrap keystore, and hot-swaps the
+        in-memory signing identity. Returns 404 once this app has already
+        been claimed.
+      tags: [app-template]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claimCode]
+              properties:
+                claimCode: { type: string }
+      responses:
+        "200":
+          description: Claim redeemed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appDid: { type: string }
+                  publicKey: { type: string, nullable: true }
+        "400":
+          description: Invalid or refused claim code
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: This app has already been claimed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Too many claim attempts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/spec:
     get:

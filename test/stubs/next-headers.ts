@@ -7,8 +7,8 @@
  * graph when a test exercises another part of that package (e.g.
  * `loadAppSigningKey()`).
  */
-export async function cookies() {
-  return {
+export function cookies() {
+  return Promise.resolve({
     get: () => undefined,
-  };
+  });
 }
