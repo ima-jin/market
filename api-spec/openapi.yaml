@@ -1,6 +1,6 @@
 openapi: "3.1.0"
 info:
-  title: imajin-app-template
+  title: market
   version: "0.1.0"
   description: >
     A third-party app on Imajin. This spec is served by the app itself at
@@ -42,7 +42,7 @@ paths:
                 type: object
                 properties:
                   status: { type: string, example: ok }
-                  service: { type: string, example: imajin-app-template }
+                  service: { type: string, example: market }
                   timestamp: { type: string, format: date-time }
 
   /api/me:

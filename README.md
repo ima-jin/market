@@ -41,7 +41,7 @@ The kernel verifies both and returns `{ appDid, userDid, scopes }` — that trip
    [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md)):
    ```bash
    pnpm install
-   pnpm db:migrate
+   pnpm db:migrate        # creates the `market` schema (APP_DB_SCHEMA=market) and its tables
    ```
 5. **Run it**:
    ```bash

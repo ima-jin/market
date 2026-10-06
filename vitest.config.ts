@@ -13,6 +13,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // src/db/schema.ts requires APP_DB_SCHEMA at import time (see docs/MIGRATIONS.md).
+    env: { APP_DB_SCHEMA: 'market' },
     include: ['**/__tests__/**/*.test.ts'],
     exclude: ['node_modules/**', '.next/**'],
     server: {

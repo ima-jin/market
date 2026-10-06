@@ -5,8 +5,8 @@ import { Providers } from './providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Imajin App Template',
-  description: 'A third-party app on Imajin — forked from ima-jin/imajin-app-template.',
+  title: 'Market',
+  description: 'Local commerce — a third-party app on Imajin, forked from ima-jin/imajin-app-template.',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

@@ -161,3 +161,49 @@ jobs:
           name: sonar-payload
           path: /tmp/sonar-payload
           retention-days: 1
+
+  migrations:
+    name: Migrations (real Postgres)
+    runs-on: ubuntu-latest
+    # Proves the acceptance criterion end to end: the migration runner creates
+    # the APP_DB_SCHEMA schema and all of this app's tables in it, and writes
+    # nothing to any other schema. See docs/MIGRATIONS.md.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: market_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_DB_SCHEMA: market
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/market_ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrate
+        run: pnpm db:migrate
+
+      - name: Migrate again (must be a no-op)
+        run: pnpm db:migrate
+
+      - name: Verify schema and tables
+        run: node scripts/verify-migrations.mjs

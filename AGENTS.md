@@ -193,15 +193,18 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
 
 ---
 
-## 8. This App (fork fills this in)
+## 8. This App
 
-> Replace this whole section in the fork. Keep §1–§7 intact.
-
-- **What it is:** _<one-line purpose>_
-- **App DID:** _<did:imajin:…>_
-- **Scopes:** _<e.g. supply:read, supply:write>_
-- **Domain:** _<e.g. app.imajin.ai>_
-- **The real-world loop it instruments:** _<who → who, what changes hands, the one paid leg>_
-- **Domain events it emits (via kernel API):** _<e.g. supply.declared → supply.received>_
-- **Connectors it consumes:** _<e.g. QuickBooks (user self-authorizes)>_
-- **Scope guardrails specific to this app:** _<the "do not build X" list — keep it provable, not comprehensive>_
+- **What it is:** Market — local commerce: listings (sale/rental), disputes, and seller settings. Forked from
+  `imajin-app-template`; extracted from the kernel's in-monorepo `apps/market` (ima-jin/imajin-ai#1989).
+- **App DID:** _set at registration — see `docs/REGISTRATION.md` (not yet registered; step 1 of 5 only ports the schema)_
+- **Scopes:** _TBD at registration_
+- **Domain:** _TBD_
+- **Database:** Postgres schema `market` (`APP_DB_SCHEMA=market`), owned by this app via `migrations/`. Tables:
+  `listings`, `disputes`, `seller_settings`.
+- **The real-world loop it instruments:** seller lists an item or service → buyer purchases (settled via the kernel) →
+  disputes are resolved if the sale goes wrong.
+- **Domain events it emits (via kernel API):** _TBD in a later step (the monorepo app emits `market.sale` / `market.purchase`)_
+- **Connectors it consumes:** none
+- **Scope guardrails specific to this app:** no tables outside the `market` schema; no `@imajin/*` workspace
+  packages or kernel imports — only published `@ima-jin/*` packages from npmjs.
