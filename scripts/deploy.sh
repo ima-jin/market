@@ -80,6 +80,7 @@ preflight() {
 
 # Prints the cwd of an existing pm2 process with this name ("" if none).
 pm2_existing_cwd() {
+  local app_name="$1"
   pm2 jlist 2>/dev/null | node -e '
     let raw = "";
     process.stdin.on("data", (chunk) => { raw += chunk; });
@@ -92,7 +93,7 @@ pm2_existing_cwd() {
         process.stdout.write("");
       }
     });
-  ' "$1"
+  ' "${app_name}"
 }
 
 # `node --env-file` and `pm2 --update-env` both let the CALLER's shell env win

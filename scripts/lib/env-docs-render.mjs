@@ -59,14 +59,16 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 - **Port.** dev 3104, prod 7104 (from \`ecosystem.config.cjs\`, not the env file).
 `;
 
-const cell = (value) => (value.startsWith('(') ? value : `\`${value.replaceAll('|', '\\|')}\``);
+const escapePipes = (text) => text.replaceAll('|', String.raw`\|`);
+
+const cell = (value) => (value.startsWith('(') ? value : `\`${escapePipes(value)}\``);
 
 function renderGroup([title, statuses]) {
   const rows = ENV_VARS.filter((variable) => statuses.includes(variable.status));
   if (rows.length === 0) return '';
   const lines = rows.map((variable) => {
     const secret = variable.secret ? ' (secret)' : '';
-    const summary = variable.summary.replaceAll('|', '\\|');
+    const summary = escapePipes(variable.summary);
     return `| \`${variable.name}\`${secret} | ${variable.phase} | ${cell(variable.dev)} | ${cell(variable.prod)} | ${summary} |`;
   });
   return `\n## ${title}\n\n| Variable | When | Dev | Prod | Notes |\n|---|---|---|---|---|\n${lines.join('\n')}\n`;
