@@ -216,3 +216,9 @@ jobs:
 
       - name: Verify schema and tables
         run: node scripts/verify-migrations.mjs
+
+      - name: Migration baseline tests (real Postgres)
+        # scripts/__tests__/migrate-baseline.test.ts skips itself without DATABASE_URL; here it
+        # runs against a prod-shaped schema in throwaway databases: idempotency, refusal on
+        # mismatch, and the never-drop/alter audit (docs/DEPLOY.md#migration-baseline).
+        run: pnpm vitest run scripts/__tests__/migrate-baseline.test.ts
