@@ -197,14 +197,25 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
 
 - **What it is:** Market — local commerce: listings (sale/rental), disputes, and seller settings. Forked from
   `imajin-app-template`; extracted from the kernel's in-monorepo `apps/market` (ima-jin/imajin-ai#1989).
-- **App DID:** _set at registration — see `docs/REGISTRATION.md` (not yet registered; step 1 of 5 only ports the schema)_
-- **Scopes:** _TBD at registration_
+- **App DID:** _set at registration — see `docs/REGISTRATION.md` (not yet registered; registration is step 4 of 5)_
+- **Scopes:** none required by the routes today. Every inbound request is authenticated through one function,
+  `authenticate()` (`src/lib/auth/authenticate.ts`, wrapping `@ima-jin/auth`'s `requireSessionOrAppToken`, the
+  #1974 pattern): a scoped `Authorization: Bearer <app-token>` (audience = this app's host) or the shared session
+  cookie as fallback. No route imports an auth primitive directly (`__tests__/boundary.test.ts` enforces this).
+  Ownership is enforced by this app: a listing's `sellerDid` must equal the caller's DID.
 - **Domain:** _TBD_
 - **Database:** Postgres schema `market` (`APP_DB_SCHEMA=market`), owned by this app via `migrations/`. Tables:
   `listings`, `disputes`, `seller_settings`.
 - **The real-world loop it instruments:** seller lists an item or service → buyer purchases (settled via the kernel) →
   disputes are resolved if the sale goes wrong.
-- **Domain events it emits (via kernel API):** _TBD in a later step (the monorepo app emits `market.sale` / `market.purchase`)_
+- **Domain events it emits (via kernel API):** `listing.create|created|update|purchase|purchased` — all through the
+  single seam `emitEvent()` (`src/lib/kernel/events.ts`), currently a logged no-op because the kernel has no public
+  app-token-gated event route yet (ima-jin/imajin-ai#2638). Until it lands, post-purchase reactors (attestation,
+  settlement, notify) do not fire for sales made here.
 - **Connectors it consumes:** none
 - **Scope guardrails specific to this app:** no tables outside the `market` schema; no `@imajin/*` workspace
-  packages or kernel imports — only published `@ima-jin/*` packages from npmjs.
+  packages or kernel imports — only published `@ima-jin/*` packages from npmjs. Where a package the kernel app used
+  is not published (`@ima-jin/media` #2637, `@ima-jin/onboard` #2645, the bus #2638) the stand-in lives in one
+  small file (`src/lib/media.ts`, `src/components/OnboardGate.tsx`, `src/lib/kernel/events.ts`) with the gap issue
+  in its header, so it can be deleted when the package ships. Known kernel-side gaps that change behaviour:
+  acting-as-scope (#2639) and identity tier for `trust_gated` purchases (#2640).

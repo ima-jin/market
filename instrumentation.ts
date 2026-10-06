@@ -1,5 +1,3 @@
-import { bootstrapSigningIdentity } from '@/lib/signing-identity';
-
 /**
  * Next.js instrumentation hook (stable since Next 15) — runs once when the
  * server process starts, before it serves any request. Not invoked by
@@ -31,10 +29,13 @@ export function validateSigningKeyBootEnv(): void {
 }
 
 export async function register(): Promise<void> {
-  if (process.env.NEXT_RUNTIME !== 'nodejs') {
-    return;
+  // A positive `=== 'nodejs'` block (not an early return) so Next can dead-code
+  // eliminate it from the edge bundle: `middleware.ts` makes Next also compile
+  // this file for the edge runtime, where `@ima-jin/auth-client`'s `fs`/`crypto`
+  // keystore code does not exist. The import is lazy for the same reason.
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    validateSigningKeyBootEnv();
+    const { bootstrapSigningIdentity } = await import('@/lib/signing-identity');
+    await bootstrapSigningIdentity();
   }
-
-  validateSigningKeyBootEnv();
-  await bootstrapSigningIdentity();
 }

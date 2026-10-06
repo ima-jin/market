@@ -7,10 +7,19 @@
 // redirect() helper Next.js's own basePath rewriting doesn't cover.
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
+// Same tier-2 + tier-3 security headers the kernel's market app sent on every
+// route: this app is embedded by the kernel's auth hub. Published SDK export.
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- next.config.js is CommonJS, run as plain Node
+const { tier2Headers, tier3Headers } = require('@ima-jin/config/next-headers');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   basePath,
   env: { NEXT_PUBLIC_BASE_PATH: basePath },
+  reactStrictMode: true,
+  async headers() {
+    return [{ source: '/:path*', headers: [...tier2Headers(), ...tier3Headers()] }];
+  },
   images: {
     remotePatterns: [
       {

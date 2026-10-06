@@ -50,6 +50,20 @@ The kernel verifies both and returns `{ appDid, userDid, scopes }` — that trip
    `/api/health` and `/api/spec` should respond immediately; `/api/me` returns your DID once
    you sign in through the header's "Sign in with Imajin" link.
 
+## What this app serves
+
+Ported from the kernel's `apps/market` (ima-jin/imajin-ai#1989, step 2 of 5):
+
+- **API** (`app/api/**`, documented in [`api-spec/openapi.yaml`](./api-spec/openapi.yaml), served at `/api/spec`):
+  listings (browse, create, update, soft-delete), checkout via the pay service, the seller's own listings,
+  seller settings and public profile widgets, handle/DID resolution, and the pay-service payment webhook.
+- **Pages** (`app/**/page.tsx`): browse, listing detail, create/edit, seller page, settings, checkout success.
+- **Auth:** every authenticated route goes through `authenticate()` (`src/lib/auth/authenticate.ts`): a scoped
+  `Authorization: Bearer <app-token>` for this app's host, or the shared session cookie as a fallback.
+  See [`docs/REGISTRATION.md`](./docs/REGISTRATION.md) §6.
+- **Known kernel gaps** (filed as `gap(kernel)` issues, all refs ima-jin/imajin-ai#1989): `@ima-jin/media` (#2637),
+  bus events (#2638), acting-as-scope (#2639), identity tier (#2640), `@ima-jin/onboard` (#2645).
+
 ## Consuming `@ima-jin/*`
 
 Published `@ima-jin/*` packages (e.g. `@ima-jin/auth-client`, `@ima-jin/config`, `@ima-jin/ui`) are served from

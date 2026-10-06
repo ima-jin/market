@@ -1,32 +1,45 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({ requireSessionOrAppToken: vi.fn() }));
+
+vi.mock('@ima-jin/auth', () => ({ requireSessionOrAppToken: mocks.requireSessionOrAppToken }));
+
 import { GET } from '../route';
 
-const { getSessionMock } = vi.hoisted(() => ({ getSessionMock: vi.fn() }));
-
-vi.mock('@ima-jin/auth-client', () => ({
-  getSession: getSessionMock,
-}));
+function get() {
+  return GET(new Request('https://market.imajin.ai/api/me') as Parameters<typeof GET>[0]);
+}
 
 describe('GET /api/me', () => {
   beforeEach(() => {
-    getSessionMock.mockReset();
+    mocks.requireSessionOrAppToken.mockReset();
   });
 
-  it('returns 401 when there is no session', async () => {
-    getSessionMock.mockResolvedValue(null);
+  it('returns did: null (200) when the caller is not authenticated', async () => {
+    mocks.requireSessionOrAppToken.mockResolvedValue({ error: 'Not authenticated', status: 401 });
 
-    const response = await GET();
+    const res = await get();
 
-    expect(response.status).toBe(401);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ did: null });
   });
 
-  it("returns the caller's DID when signed in", async () => {
-    getSessionMock.mockResolvedValue({ did: 'did:imajin:abc123' });
+  it("returns the caller's DID for a scoped app token", async () => {
+    mocks.requireSessionOrAppToken.mockResolvedValue({
+      auth: { did: 'did:imajin:abc123', scopes: [], via: 'token' },
+    });
 
-    const response = await GET();
-    const body = await response.json();
+    const res = await get();
 
-    expect(response.status).toBe(200);
-    expect(body).toEqual({ did: 'did:imajin:abc123' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ did: 'did:imajin:abc123', scopeLabel: null });
+  });
+
+  it('also accepts the session-cookie fallback', async () => {
+    mocks.requireSessionOrAppToken.mockResolvedValue({
+      auth: { did: 'did:imajin:abc123', scopes: [], via: 'cookie' },
+    });
+
+    expect(await (await get()).json()).toEqual({ did: 'did:imajin:abc123', scopeLabel: null });
   });
 });
