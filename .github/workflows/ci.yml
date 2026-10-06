@@ -160,6 +160,9 @@ jobs:
         with:
           name: sonar-payload
           path: /tmp/sonar-payload
+          # .sonar-pr-meta.json is a dotfile; upload-artifact@v4 skips hidden files by
+          # default, which left the SonarCloud workflow scanning with an empty PR key.
+          include-hidden-files: true
           retention-days: 1
 
   migrations:
