@@ -9,11 +9,14 @@ import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { createLogger } from '@ima-jin/logger';
 import { db, listings } from '@/db';
+import { getAppServiceToken } from '@/lib/app-token';
 import { authenticate, authenticateOptional } from '@/lib/auth/authenticate';
 import { appBaseUrl, payServiceUrl } from '@/lib/env';
 import { isHardIdentity } from '@/lib/kernel/client';
 import { emitEvent } from '@/lib/kernel/events';
 import { withBasePath } from '@/lib/base-path';
+import { recordPendingCheckout, type PayeeChainEntry } from '@/lib/pending-checkout';
+import { buildPayeeChain, type FairManifest } from '@/lib/settle';
 import { errorResponse, jsonResponse } from '@/lib/utils';
 
 const log = createLogger('market');
@@ -51,6 +54,45 @@ async function parseQuantity(request: NextRequest): Promise<number> {
     // body is optional — default to quantity 1
   }
   return 1;
+}
+
+/**
+ * Remember which kernel payment (`transactionId`) this Stripe session is, so the purchase
+ * webhook can settle it. Non-fatal: the buyer's checkout has already been created.
+ */
+async function rememberCheckout(
+  listingId: string,
+  checkout: { id?: string; transactionId?: string },
+  amountCents: number,
+  chain: PayeeChainEntry[]
+): Promise<void> {
+  if (!checkout.id || !checkout.transactionId) {
+    log.error({ listingId }, 'Pay checkout response had no session id / transactionId — purchase will not settle');
+    return;
+  }
+  try {
+    await recordPendingCheckout(listingId, checkout.id, { transactionId: checkout.transactionId, amountCents, chain });
+  } catch (err) {
+    log.error({ err: String(err), listingId }, 'Failed to record pending checkout — purchase will not settle');
+  }
+}
+
+/**
+ * Headers for pay's checkout. A listing with a payee chain checks out with market's own
+ * app-service token (#2740), which binds the payment to market's app DID so it can settle
+ * later. Returns `null` when the token cannot be minted: without it the payment could never
+ * settle, so the purchase is refused rather than taking money that cannot be paid out.
+ */
+async function checkoutHeaders(payeeChain: PayeeChainEntry[] | null): Promise<Record<string, string> | null> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (!payeeChain) return headers;
+  try {
+    headers.Authorization = `Bearer ${await getAppServiceToken()}`;
+    return headers;
+  } catch (err) {
+    log.error({ err: String(err) }, 'Market app-service token unavailable');
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest, props: RouteProps) {
@@ -91,13 +133,21 @@ export async function POST(request: NextRequest, props: RouteProps) {
       ],
     };
 
-    // 5. POST to pay service
+    // 5. Declare the payees (#2740). The chain is fixed here and re-posted verbatim at settle time.
+    const amountCents = listing.price * quantity;
+    const payeeChain = buildPayeeChain({ amountCents, fairManifest: fairManifest as FairManifest, buyerDid });
+    const headers = await checkoutHeaders(payeeChain);
+    if (!headers) {
+      return errorResponse('Payment service unavailable', 503);
+    }
+
+    // 6. POST to pay service
     const appUrl = appBaseUrl();
     const listingPath = withBasePath(`/listings/${listing.id}`);
     const successPath = withBasePath('/checkout/success');
     const payResponse = await fetch(`${payServiceUrl()}/api/checkout`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         items: [
           {
@@ -111,6 +161,7 @@ export async function POST(request: NextRequest, props: RouteProps) {
         successUrl: `${appUrl}${successPath}?session_id={CHECKOUT_SESSION_ID}&listing=${listing.id}`,
         cancelUrl: `${appUrl}${listingPath}`,
         fairManifest,
+        ...(payeeChain && { payeeManifest: { chain: payeeChain } }),
         metadata: {
           service: 'market',
           listingId: listing.id,
@@ -128,6 +179,10 @@ export async function POST(request: NextRequest, props: RouteProps) {
     }
 
     const checkout = await payResponse.json();
+
+    if (payeeChain) {
+      await rememberCheckout(listing.id, checkout, amountCents, payeeChain);
+    }
 
     void emitEvent('listing.purchase', {
       issuer: listing.sellerDid,

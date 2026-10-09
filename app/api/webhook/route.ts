@@ -12,6 +12,8 @@ import { createLogger } from '@ima-jin/logger';
 import { db, listings } from '@/db';
 import { webhookSecret } from '@/lib/env';
 import { emitEvent } from '@/lib/kernel/events';
+import { readPendingCheckout } from '@/lib/pending-checkout';
+import { settleListingPurchase, type FairManifest } from '@/lib/settle';
 import { errorResponse, jsonResponse } from '@/lib/utils';
 
 const log = createLogger('market');
@@ -19,12 +21,14 @@ const log = createLogger('market');
 interface WebhookBody {
   type?: string;
   status?: string;
-  secret?: string;
+  /** Stripe Checkout session id of the payment (#2740) — keys the checkout recorded at purchase time. */
+  sessionId?: string;
   metadata?: {
     listingId?: string;
     buyerDid?: string;
     amount?: number;
     currency?: string;
+    sessionId?: string;
   };
 }
 
@@ -36,14 +40,18 @@ function secretsMatch(provided: unknown, expected: string): boolean {
 }
 
 /**
- * The secret may arrive in the `x-webhook-secret` header or the body.
- * Fails closed when WEBHOOK_SECRET is not configured — an unset secret must
- * never authorize a request.
+ * Verify the caller (#2740, #2743). The kernel authenticates server-to-server with
+ * `Authorization: Bearer <WEBHOOK_SECRET>`; that is the only accepted scheme — the legacy
+ * `x-webhook-secret` header and body `secret` get 401. Fails closed: with no secret
+ * configured, nothing is authorized.
  */
-function isWebhookAuthorized(headerSecret: string | null, bodySecret: unknown): boolean {
+function isWebhookAuthorized(request: NextRequest): boolean {
   const expected = webhookSecret();
   if (!expected) return false;
-  return secretsMatch(headerSecret, expected) || secretsMatch(bodySecret, expected);
+
+  const authorization = request.headers.get('authorization');
+  const bearer = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : undefined;
+  return secretsMatch(bearer, expected);
 }
 
 function isPaymentSuccess(body: WebhookBody): boolean {
@@ -90,6 +98,42 @@ function publishListingPurchased(body: WebhookBody, listing: typeof listings.$in
   });
 }
 
+/**
+ * Settle the purchase through market's own app-service token (#2740). The kernel pays out
+ * only a payment market's checkout created, so the checkout recorded at purchase time
+ * (looked up by Stripe session id) is required; without it there is nothing to settle.
+ */
+async function settlePurchase(body: WebhookBody, listing: typeof listings.$inferSelect, listingId: string): Promise<void> {
+  const fairManifest = (listing.fairManifest as FairManifest | null) || null;
+  if (!fairManifest?.chain?.length) {
+    log.warn({ listingId }, '[settle] No .fair manifest chain for listing — skipping settlement');
+    return;
+  }
+
+  const sessionId = body.sessionId || body.metadata?.sessionId;
+  if (!sessionId) {
+    log.error({ listingId }, '[settle] Purchase webhook carried no Stripe session id — cannot find the checkout to settle');
+    return;
+  }
+
+  const pending = readPendingCheckout(listing.metadata, sessionId);
+  if (!pending) {
+    log.error(
+      { listingId, sessionId },
+      '[settle] No recorded checkout for this session — nothing to settle (already settled, or never bound to market)',
+    );
+    return;
+  }
+
+  await settleListingPurchase({
+    listingId,
+    sessionId,
+    pending,
+    currency: body.metadata?.currency || listing.currency || 'CAD',
+    fairManifest,
+  });
+}
+
 async function processSuccessfulPayment(body: WebhookBody): Promise<void> {
   const listingId = body.metadata?.listingId;
   if (!listingId) return;
@@ -99,15 +143,15 @@ async function processSuccessfulPayment(body: WebhookBody): Promise<void> {
 
   await applyListingPurchase(listingId, listing);
   publishListingPurchased(body, listing, listingId);
+  await settlePurchase(body, listing, listingId);
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Verify webhook secret from header or body
-    const headerSecret = request.headers.get('x-webhook-secret');
-    if (!isWebhookAuthorized(headerSecret, body?.secret)) {
+    // Verify the caller (Bearer secret only)
+    if (!isWebhookAuthorized(request)) {
       return errorResponse('Unauthorized', 401);
     }
 

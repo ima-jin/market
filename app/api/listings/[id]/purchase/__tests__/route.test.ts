@@ -24,7 +24,8 @@ const LISTING = {
   currency: 'CAD',
   status: 'active',
   sellerTier: 'public_onplatform',
-  fairManifest: { chain: [{ did: 'did:imajin:seller', share: 1 }] },
+  // No `chain`: a chain-less listing checks out plainly (the chain/app-token flow is in settle.test.ts).
+  fairManifest: { version: '1.0', distributions: [{ did: 'did:imajin:seller', share: 1 }] },
 };
 
 function anonymous() {
