@@ -36,7 +36,7 @@
     "name": "IMAJIN_KERNEL_URL",
     "status": "required",
     "phase": "runtime",
-    "summary": "Kernel base URL (no path). Used by loadAppSigningKey() to fetch this app's signing key at boot, and by the kernel client.",
+    "summary": "Kernel base URL (no path). Used by loadAppSigningKey() to fetch this app's signing key at boot, to mint this app's own app-service token (POST {IMAJIN_KERNEL_URL}/auth/api/apps/token/service) for pay checkout + settle, and by the kernel client.",
     "dev": "https://dev-jin.imajin.ai",
     "prod": "https://jin.imajin.ai"
   },
@@ -52,7 +52,7 @@
     "name": "WEBHOOK_SECRET",
     "status": "required",
     "phase": "runtime",
-    "summary": "Shared secret the pay service sends with payment webhooks (POST /api/webhook). The webhook rejects every request while it is unset. 32+ random bytes; set the same value on the pay side. Never the dev value on prod.",
+    "summary": "Shared secret the kernel presents on payment webhooks (POST /api/webhook) as `Authorization: Bearer <WEBHOOK_SECRET>` — the only accepted scheme; the legacy x-webhook-secret header and body secret get 401. The webhook rejects every request while it is unset. 32+ random bytes; set the same value as the kernel's MARKET_WEBHOOK_SECRET. Never the dev value on prod.",
     "dev": "(32+ random bytes — openssl rand -hex 32)",
     "prod": "(32+ random bytes — openssl rand -hex 32)",
     "secret": true
@@ -129,6 +129,14 @@
     "summary": "This node's DID, shown in the .fair attribution accordion on a listing. Optional.",
     "dev": "(optional)",
     "prod": "(optional)"
+  },
+  {
+    "name": "NODE_DID",
+    "status": "optional",
+    "phase": "runtime",
+    "summary": "This node's DID: the recipient of the node fee in the .fair payee chain market declares at checkout (src/lib/settle.ts). Unset -> the node fee resolves to an unresolved sentinel DID and a warning is logged; set it on any node that settles purchases. Also read by @ima-jin/auth's node-act-as check.",
+    "dev": "(this node's DID)",
+    "prod": "(this node's DID)"
   },
   {
     "name": "IMAJIN_ENV",
@@ -262,14 +270,6 @@
     "dev": "(unset)",
     "prod": "(unset)",
     "secret": true
-  },
-  {
-    "name": "NODE_DID",
-    "status": "dependency",
-    "phase": "runtime",
-    "summary": "@ima-jin/auth node-act-as check (kernel node DID). Not used by market; leave unset.",
-    "dev": "(unset)",
-    "prod": "(unset)"
   },
   {
     "name": "APP_URL",

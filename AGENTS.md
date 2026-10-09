@@ -214,7 +214,11 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
 - **Domain events it emits (via kernel API):** `listing.create|created|update|purchase|purchased` — all through the
   single seam `emitEvent()` (`src/lib/kernel/events.ts`), currently a logged no-op because the kernel has no public
   app-token-gated event route yet (ima-jin/imajin-ai#2638). Until it lands, post-purchase reactors (attestation,
-  settlement, notify) do not fire for sales made here.
+  notify) do not fire for sales made here. Settlement does not depend on it: market settles its own purchases through
+  pay's registered-app contract — it mints its own app-service token (`src/lib/app-token.ts`), checks out with a
+  declared payee chain (`src/lib/settle.ts`), remembers the kernel payment per Stripe session
+  (`src/lib/pending-checkout.ts`, in `listings.metadata`), and settles from `POST /api/webhook`, which accepts only
+  `Authorization: Bearer <WEBHOOK_SECRET>`.
 - **Connectors it consumes:** none
 - **Scope guardrails specific to this app:** no tables outside the `market` schema; no `@imajin/*` workspace
   packages or kernel imports — only published `@ima-jin/*` packages from npmjs. Where a package the kernel app used
