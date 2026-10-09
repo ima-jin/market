@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ emitEvent: vi.fn(), settleListingPurchase: vi.fn() }));
+const mocks = vi.hoisted(() => ({ emitEvent: vi.fn(), settleListingPurchase: vi.fn(), recordByoSettlement: vi.fn() }));
 
 vi.mock('@/db', async () => (await import('../../../../test/helpers/db-mock')).dbModule);
 vi.mock('@/lib/kernel/events', () => ({ emitEvent: mocks.emitEvent }));
-vi.mock('@/lib/settle', () => ({ settleListingPurchase: mocks.settleListingPurchase }));
+vi.mock('@/lib/settle', () => ({
+  settleListingPurchase: mocks.settleListingPurchase,
+  recordByoSettlement: mocks.recordByoSettlement,
+}));
 // The real pending-checkout reader: the recorded entry is looked up exactly as in production.
 vi.mock('@/lib/pending-checkout', async () => import('../../../../src/lib/pending-checkout'));
 
@@ -324,5 +327,70 @@ describe('POST /api/webhook — settlement (#2740)', () => {
 
     expect(setValues()).toMatchObject({ quantity: 2, status: 'active' });
     expect(mocks.settleListingPurchase).toHaveBeenCalledTimes(1);
+  });
+
+  describe('paid on the seller\'s own Stripe account (#2773)', () => {
+    const byo = (overrides: Record<string, unknown> = {}) => paid({ rail: 'stripe-byo', ...overrides });
+
+    beforeEach(() => {
+      mocks.recordByoSettlement.mockResolvedValue(undefined);
+    });
+
+    it('treats the kernel notification as the settlement: records it and never calls /pay/api/settle', async () => {
+      dbState.queue([settlable()], undefined);
+
+      const res = await hook(byo(), authed);
+
+      expect(res.status).toBe(200);
+      expect(setValues()).toMatchObject({ status: 'sold' });
+      expect(mocks.emitEvent).toHaveBeenCalledWith('listing.purchased', expect.objectContaining({ scope: 'market' }));
+      expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
+      expect(mocks.recordByoSettlement).toHaveBeenCalledWith({
+        listingId: 'lst_1',
+        sessionId: SESSION_ID,
+        amountCents: 5000,
+        currency: 'CAD',
+        fairManifest: FAIR_MANIFEST,
+      });
+    });
+
+    it('records the receipt even for a listing with no .fair chain or no recorded pending checkout', async () => {
+      dbState.queue([settlable({ fairManifest: null, metadata: {} })], undefined);
+
+      await hook(byo(), authed);
+
+      expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
+      expect(mocks.recordByoSettlement).toHaveBeenCalledWith(expect.objectContaining({ fairManifest: null }));
+    });
+
+    it('falls back to the recorded amount, then 0, when the webhook carries none', async () => {
+      dbState.queue([settlable()], undefined);
+      await hook(byo({ metadata: { listingId: 'lst_1' } }), authed);
+      expect(mocks.recordByoSettlement).toHaveBeenLastCalledWith(expect.objectContaining({ amountCents: 5000 }));
+
+      dbState.reset();
+      dbState.queue([settlable({ metadata: {} })], undefined);
+      await hook(byo({ metadata: { listingId: 'lst_1' } }), authed);
+      expect(mocks.recordByoSettlement).toHaveBeenLastCalledWith(expect.objectContaining({ amountCents: 0 }));
+    });
+
+    it('records nothing when the webhook carries no Stripe session id', async () => {
+      dbState.queue([settlable()], undefined);
+
+      const res = await hook(byo({ sessionId: undefined }), authed);
+
+      expect(res.status).toBe(200);
+      expect(mocks.recordByoSettlement).not.toHaveBeenCalled();
+      expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
+    });
+
+    it('still settles a platform-collected payment (no rail) through /pay/api/settle', async () => {
+      dbState.queue([settlable()], undefined);
+
+      await hook(paid(), authed);
+
+      expect(mocks.settleListingPurchase).toHaveBeenCalledTimes(1);
+      expect(mocks.recordByoSettlement).not.toHaveBeenCalled();
+    });
   });
 });

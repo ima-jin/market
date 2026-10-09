@@ -234,6 +234,59 @@ describe('POST /api/listings/:id/purchase', () => {
     expect(await res.json()).toEqual({ error: 'card declined' });
   });
 
+  describe('seller card rail (#2773)', () => {
+    function payRefuses(body: unknown, status: number) {
+      mocks.fetch.mockResolvedValue(new Response(JSON.stringify(body), { status }));
+      dbState.queue([LISTING]);
+    }
+
+    it('answers a seller with no card rail with a plain 400 and the code, never a generic error', async () => {
+      payRefuses({ error: "This seller hasn't set up card payments", code: 'SELLER_NO_CARD_RAIL' }, 400);
+
+      const res = await purchase();
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "Card payments aren't set up for this seller yet. Please contact the seller about another way to pay.",
+        code: 'SELLER_NO_CARD_RAIL',
+      });
+    });
+
+    it.each(['CARD_RAIL_KEY_MISSING', 'CARD_RAIL_KEY_REJECTED', 'CARD_RAIL_UNAVAILABLE', 'CARD_RAIL_REQUEST_REJECTED'])(
+      'answers %s with a plain 502 that names the seller\'s Stripe account',
+      async (code) => {
+        payRefuses({ error: "Card payment could not be started on the seller's Stripe account", code }, 502);
+
+        const res = await purchase();
+
+        expect(res.status).toBe(502);
+        expect(await res.json()).toEqual({
+          error: "Card payment couldn't be started on the seller's Stripe account. Please try again later or contact the seller.",
+          code,
+        });
+      }
+    );
+
+    it('does not record a pending checkout or emit a purchase event for a refused checkout', async () => {
+      payRefuses({ code: 'SELLER_NO_CARD_RAIL' }, 400);
+
+      await purchase();
+
+      expect(dbState.argsOf('set', 'update')).toHaveLength(0);
+    });
+
+    it('keeps the generic 500 for an unrelated pay error code and for a non-JSON error body', async () => {
+      payRefuses({ error: 'boom', code: 'SOMETHING_ELSE' }, 500);
+      expect(await (await purchase()).json()).toEqual({ error: 'boom' });
+
+      mocks.fetch.mockResolvedValue(new Response('<html>bad gateway</html>', { status: 502 }));
+      dbState.queue([LISTING]);
+      const res = await purchase();
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: 'Payment service error' });
+    });
+  });
+
   it('uses a generic message when the pay service gives none', async () => {
     mocks.fetch.mockResolvedValue(new Response(JSON.stringify({}), { status: 500 }));
     dbState.queue([LISTING]);

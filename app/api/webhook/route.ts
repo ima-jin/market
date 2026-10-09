@@ -10,10 +10,11 @@ import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { createLogger } from '@ima-jin/logger';
 import { db, listings } from '@/db';
+import { STRIPE_BYO_RAIL } from '@/lib/card-rail';
 import { webhookSecret } from '@/lib/env';
 import { emitEvent } from '@/lib/kernel/events';
 import { readPendingCheckout } from '@/lib/pending-checkout';
-import { settleListingPurchase, type FairManifest } from '@/lib/settle';
+import { recordByoSettlement, settleListingPurchase, type FairManifest } from '@/lib/settle';
 import { errorResponse, jsonResponse } from '@/lib/utils';
 
 const log = createLogger('market');
@@ -23,6 +24,11 @@ interface WebhookBody {
   status?: string;
   /** Stripe Checkout session id of the payment (#2740) — keys the checkout recorded at purchase time. */
   sessionId?: string;
+  /**
+   * Set to `stripe-byo` when the payment was collected on the seller's own Stripe account and the
+   * kernel has already settled it (#2773). Absent for a platform-collected payment.
+   */
+  rail?: string;
   metadata?: {
     listingId?: string;
     buyerDid?: string;
@@ -98,6 +104,29 @@ function publishListingPurchased(body: WebhookBody, listing: typeof listings.$in
   });
 }
 
+/** Record a purchase the kernel already settled on the seller's own Stripe account (#2773). */
+async function settleByoPurchase(
+  body: WebhookBody,
+  listing: typeof listings.$inferSelect,
+  listingId: string,
+  sessionId: string | undefined,
+  fairManifest: FairManifest | null,
+): Promise<void> {
+  if (!sessionId) {
+    log.error({ listingId }, '[settle] BYO purchase webhook carried no Stripe session id — cannot record the receipt');
+    return;
+  }
+
+  const pending = readPendingCheckout(listing.metadata, sessionId);
+  await recordByoSettlement({
+    listingId,
+    sessionId,
+    amountCents: body.metadata?.amount ?? pending?.amountCents ?? 0,
+    currency: body.metadata?.currency || listing.currency || 'CAD',
+    fairManifest,
+  });
+}
+
 /**
  * Settle the purchase through market's own app-service token (#2740). The kernel pays out
  * only a payment market's checkout created, so the checkout recorded at purchase time
@@ -105,12 +134,20 @@ function publishListingPurchased(body: WebhookBody, listing: typeof listings.$in
  */
 async function settlePurchase(body: WebhookBody, listing: typeof listings.$inferSelect, listingId: string): Promise<void> {
   const fairManifest = (listing.fairManifest as FairManifest | null) || null;
+  const sessionId = body.sessionId || body.metadata?.sessionId;
+
+  // #2773: paid on the seller's own Stripe account. The kernel has already completed the payment and
+  // told us, so this notification IS the settlement — `/pay/api/settle` refuses such a payment (409).
+  if (body.rail === STRIPE_BYO_RAIL) {
+    await settleByoPurchase(body, listing, listingId, sessionId, fairManifest);
+    return;
+  }
+
   if (!fairManifest?.chain?.length) {
     log.warn({ listingId }, '[settle] No .fair manifest chain for listing — skipping settlement');
     return;
   }
 
-  const sessionId = body.sessionId || body.metadata?.sessionId;
   if (!sessionId) {
     log.error({ listingId }, '[settle] Purchase webhook carried no Stripe session id — cannot find the checkout to settle');
     return;

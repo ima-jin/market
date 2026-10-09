@@ -613,6 +613,12 @@ paths:
         declared `payeeManifest`, and the resulting kernel payment is remembered so the
         payment webhook can settle it; if that token cannot be minted the purchase is refused
         with 503 rather than taking money that could never settle.
+
+
+        Card payments are charged on the seller's OWN Stripe account (their connected key; there
+        is no Stripe Connect). A seller with no connected key gets 400 with
+        `code: SELLER_NO_CARD_RAIL`, and a connected seller whose Stripe account would not take
+        the charge gets 502 with a `CARD_RAIL_*` code; both carry a plain buyer-facing `error`.
       tags: [market]
       security:
         - bearerAuth: []
@@ -644,16 +650,36 @@ paths:
                     description: "Hosted checkout URL; redirect the buyer here."
                   sessionId: { type: string }
         "400":
-          description: Listing not active, or requires direct contact with the seller
+          description: >
+            Listing not active, requires direct contact with the seller, or the seller has no
+            card rail (`code: SELLER_NO_CARD_RAIL`)
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+                  code:
+                    type: string
+                    example: SELLER_NO_CARD_RAIL
+                    description: "Present when the seller has no card rail; the client hides the card button."
         "403":
           description: trust_gated listing and the buyer is not a verified hard identity
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "502":
+          description: The seller's Stripe account could not start the charge (`code` is one of `CARD_RAIL_KEY_MISSING`, `CARD_RAIL_KEY_REJECTED`, `CARD_RAIL_UNAVAILABLE`, `CARD_RAIL_REQUEST_REJECTED`)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, code]
+                properties:
+                  error: { type: string }
+                  code: { type: string, example: CARD_RAIL_UNAVAILABLE }
         "503":
           description: Market's app-service token is unavailable (app unclaimed or not approved for `pay:settle`); the purchase is refused for a listing with a `.fair` chain
           content:
@@ -829,7 +855,10 @@ paths:
         single-quantity or unlimited listing is marked `sold`; a multi-quantity listing is
         decremented (and marked `sold` at zero), and a listing with a `.fair` chain is settled
         through market's own app-service token using the checkout recorded for the payment's
-        Stripe `sessionId`. Any other event is acknowledged and ignored.
+        Stripe `sessionId`. A payment the kernel already settled on the seller's own Stripe
+        account arrives with `rail: stripe-byo`: that notification is the settlement, so market
+        records the receipt and does NOT call `/pay/api/settle` (the kernel refuses such a
+        payment). Any other event is acknowledged and ignored.
       tags: [market]
       security:
         - webhookSecret: []
@@ -845,6 +874,10 @@ paths:
                 sessionId:
                   type: string
                   description: "Stripe Checkout session id of the payment; keys the checkout recorded at purchase time (may also be sent as `metadata.sessionId`)."
+                rail:
+                  type: string
+                  enum: [stripe-byo]
+                  description: "Set only when the payment was collected on the seller's own Stripe account and the kernel has already settled it. Absent for a platform-collected payment."
                 metadata:
                   type: object
                   properties:

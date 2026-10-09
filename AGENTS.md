@@ -218,7 +218,11 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
   pay's registered-app contract — it mints its own app-service token (`src/lib/app-token.ts`), checks out with a
   declared payee chain (`src/lib/settle.ts`), remembers the kernel payment per Stripe session
   (`src/lib/pending-checkout.ts`, in `listings.metadata`), and settles from `POST /api/webhook`, which accepts only
-  `Authorization: Bearer <WEBHOOK_SECRET>`.
+  `Authorization: Bearer <WEBHOOK_SECRET>`. Card payments are charged on the seller's OWN Stripe account (no Stripe
+  Connect): a payment the kernel already settled there arrives with `rail: stripe-byo`, and that notification IS the
+  settlement — the webhook records the receipt and never calls `/pay/api/settle` (which refuses such a payment). A
+  seller with no connected key gets `SELLER_NO_CARD_RAIL` (`src/lib/card-rail.ts`): the purchase route answers a plain
+  400 and the listing page hides the card button (ima-jin/imajin-ai#2773).
 - **Connectors it consumes:** none
 - **Scope guardrails specific to this app:** no tables outside the `market` schema; no `@imajin/*` workspace
   packages or kernel imports — only published `@ima-jin/*` packages from npmjs. Where a package the kernel app used

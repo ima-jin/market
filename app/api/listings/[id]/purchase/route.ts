@@ -12,6 +12,7 @@ import { db, listings } from '@/db';
 import { getAppServiceToken } from '@/lib/app-token';
 import { authenticate, authenticateOptional } from '@/lib/auth/authenticate';
 import { appBaseUrl, payServiceUrl } from '@/lib/env';
+import { cardRailFailure } from '@/lib/card-rail';
 import { isHardIdentity } from '@/lib/kernel/client';
 import { emitEvent } from '@/lib/kernel/events';
 import { withBasePath } from '@/lib/base-path';
@@ -173,7 +174,14 @@ export async function POST(request: NextRequest, props: RouteProps) {
     });
 
     if (!payResponse.ok) {
-      const err = await payResponse.json();
+      const err = await payResponse.json().catch(() => ({}));
+      // #2773: a seller with no card rail (or a Stripe account that would not take the charge) is not a
+      // server fault — say so plainly and pass the code through so the page can hide the card button.
+      const railFailure = cardRailFailure(err.code);
+      if (railFailure) {
+        log.warn({ code: railFailure.code, listingId: listing.id }, 'Seller has no working card rail');
+        return Response.json({ error: railFailure.message, code: railFailure.code }, { status: railFailure.status });
+      }
       log.error({ err }, 'Pay service error');
       return errorResponse(err.error || 'Payment service error', 500);
     }
