@@ -179,8 +179,18 @@ dev-jin.imajin.ai {
 
 Verify: `curl -fsS https://jin.imajin.ai/market/api/health` → `{"status":"ok","service":"market",…}`.
 
-The pay service delivers payment webhooks to `POST <public URL>/market/api/webhook` with the shared
-`WEBHOOK_SECRET`; make sure the pay side for each environment points at that environment's market URL.
+The kernel delivers payment webhooks to `POST <public URL>/market/api/webhook` with
+`Authorization: Bearer <WEBHOOK_SECRET>` (the only accepted scheme; the value must equal the kernel's
+`MARKET_WEBHOOK_SECRET`); make sure the kernel side for each environment points at that environment's market URL.
+
+### Settlement (`.fair` payouts)
+
+Market settles purchases with its **own app-service token** — there is no shared pay key in the env. Operator
+prerequisites per environment: the app is claimed (signing key bootstrapped, see above), and the operator has
+**approved the `pay:settle` service scope for this app's DID** (propose it via `POST /api/apps/service-scopes`,
+countersign on the `apps:service-scopes` card on `/jin`). Until then the token mint drops the scope, pay refuses
+checkout/settle, and a purchase of a listing with a `.fair` chain fails closed with 503 rather than taking money that
+could never settle. Set `NODE_DID` so the node fee resolves to this node.
 
 ## Rollback
 
@@ -198,5 +208,8 @@ rollback is only safe while migrations stay additive.
 - **Login loops on dev only** — `IMAJIN_ENV=dev` is missing (wrong session cookie name).
 - **`/dashboard` redirects to the prod kernel from dev** — `NEXT_PUBLIC_SERVICE_PREFIX=dev-` was not set at build
   time; set it and redeploy.
-- **Purchases return 500** — `PAY_SERVICE_URL` is unset; **payment webhooks are rejected** — `WEBHOOK_SECRET` is
-  unset or differs from the pay side.
+- **Purchases return 500** — `PAY_SERVICE_URL` is unset; **payment webhooks are rejected (401)** — `WEBHOOK_SECRET` is
+  unset or differs from the kernel's `MARKET_WEBHOOK_SECRET`, or the caller is not sending it as `Authorization: Bearer`.
+- **Purchases of `.fair` listings return 503** — market's app-service token cannot be minted: the app is unclaimed, or
+  `IMAJIN_KERNEL_URL` is unset/wrong. **Purchases are paid but never settle** — the operator has not approved
+  `pay:settle` for this app's DID.

@@ -52,13 +52,13 @@ components:
       name: imajin_session
       description: Shared kernel session cookie (fallback).
     webhookSecret:
-      type: apiKey
-      in: header
-      name: x-webhook-secret
+      type: http
+      scheme: bearer
       description: >
-        Shared secret held by the pay service. May alternatively be sent as `secret` in
-        the JSON body. If the app has no `WEBHOOK_SECRET` configured every request is
-        rejected.
+        `Authorization: Bearer <WEBHOOK_SECRET>`, the shared secret the kernel presents
+        server-to-server. This is the only accepted scheme: the legacy `x-webhook-secret`
+        header and a `secret` in the JSON body are rejected with 401. If the app has no
+        `WEBHOOK_SECRET` configured every request is rejected.
   schemas:
     Error:
       type: object
@@ -608,7 +608,11 @@ paths:
         Anonymous buyers are allowed except for `trust_gated` listings, which require a
         signed-in hard (keypair) identity. Refused for `public_offplatform` listings and for
         listings that are not `active`. The listing's `.fair` manifest (or a 99/1
-        seller/platform split when it has none) is sent to the pay service.
+        seller/platform split when it has none) is sent to the pay service. A listing whose
+        manifest carries a `.fair` chain checks out with market's own app-service token and a
+        declared `payeeManifest`, and the resulting kernel payment is remembered so the
+        payment webhook can settle it; if that token cannot be minted the purchase is refused
+        with 503 rather than taking money that could never settle.
       tags: [market]
       security:
         - bearerAuth: []
@@ -650,6 +654,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "503":
+          description: Market's app-service token is unavailable (app unclaimed or not approved for `pay:settle`); the purchase is refused for a listing with a `.fair` chain
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "500":
           description: Pay service error or unexpected failure
           content:
@@ -815,10 +824,12 @@ paths:
       operationId: handleWebhook
       summary: Payment events from the pay service
       description: >
-        Authenticated by a shared secret, not by a user credential. On a successful payment
-        (`type: payment.succeeded`, or `status: paid | succeeded`) a single-quantity or
-        unlimited listing is marked `sold`; a multi-quantity listing is decremented (and marked
-        `sold` at zero). Any other event is acknowledged and ignored.
+        Authenticated by `Authorization: Bearer <WEBHOOK_SECRET>`, not by a user credential.
+        On a successful payment (`type: payment.succeeded`, or `status: paid | succeeded`) a
+        single-quantity or unlimited listing is marked `sold`; a multi-quantity listing is
+        decremented (and marked `sold` at zero), and a listing with a `.fair` chain is settled
+        through market's own app-service token using the checkout recorded for the payment's
+        Stripe `sessionId`. Any other event is acknowledged and ignored.
       tags: [market]
       security:
         - webhookSecret: []
@@ -831,12 +842,13 @@ paths:
               properties:
                 type: { type: string, example: payment.succeeded }
                 status: { type: string, example: paid }
-                secret:
+                sessionId:
                   type: string
-                  description: "Alternative to the x-webhook-secret header."
+                  description: "Stripe Checkout session id of the payment; keys the checkout recorded at purchase time (may also be sent as `metadata.sessionId`)."
                 metadata:
                   type: object
                   properties:
+                    sessionId: { type: string }
                     listingId: { type: string }
                     buyerDid: { type: string }
                     amount: { type: number }
