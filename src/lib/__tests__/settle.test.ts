@@ -15,7 +15,7 @@ vi.mock('@/lib/app-token', () => ({ getAppServiceToken: mocks.getAppServiceToken
 vi.mock('@/lib/pending-checkout', () => ({ saveSettlementSnapshot: mocks.saveSettlementSnapshot }));
 vi.mock('@ima-jin/logger', () => ({ createLogger: () => mocks.log }));
 
-import { buildPayeeChain, settleListingPurchase, type FairManifest } from '../settle';
+import { buildPayeeChain, recordByoSettlement, settleListingPurchase, type FairManifest } from '../settle';
 import type { PendingCheckout } from '../pending-checkout';
 
 const SELLER = 'did:imajin:seller';
@@ -234,5 +234,60 @@ describe('settleListingPurchase', () => {
 
     expect(mocks.log.warn).toHaveBeenCalledWith({ err: expect.stringContaining('db down') }, expect.stringContaining('Failed to snapshot'));
     expect(mocks.log.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('recordByoSettlement (#2773)', () => {
+  const byoParams = (overrides: Partial<Parameters<typeof recordByoSettlement>[0]> = {}) => ({
+    listingId: LISTING_ID,
+    sessionId: SESSION_ID,
+    amountCents: 5000,
+    currency: 'CAD',
+    fairManifest: MANIFEST,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+    mocks.saveSettlementSnapshot.mockReset().mockResolvedValue(undefined);
+    fetchMock.mockReset();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('records a stripe-byo receipt with no payee chain, clears the pending entry, and never calls pay', async () => {
+    await recordByoSettlement(byoParams());
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.getAppServiceToken).not.toHaveBeenCalled();
+    expect(mocks.saveSettlementSnapshot).toHaveBeenCalledTimes(1);
+    const [listingId, sessionId, receipt] = mocks.saveSettlementSnapshot.mock.calls[0]!;
+    expect(listingId).toBe(LISTING_ID);
+    expect(sessionId).toBe(SESSION_ID);
+    expect(receipt).toMatchObject({
+      version: '1.0',
+      totalAmount: 50,
+      netAmount: 50,
+      currency: 'CAD',
+      fees: [],
+      chain: [],
+      rail: 'stripe-byo',
+    });
+    expect(typeof receipt.settledAt).toBe('string');
+  });
+
+  it('falls back to receipt version 1.0 when the listing has no manifest', async () => {
+    await recordByoSettlement(byoParams({ fairManifest: null }));
+
+    expect(mocks.saveSettlementSnapshot.mock.calls[0]![2]).toMatchObject({ version: '1.0' });
+  });
+
+  it('is non-fatal when saving the receipt fails', async () => {
+    mocks.saveSettlementSnapshot.mockRejectedValue(new Error('db down'));
+
+    await expect(recordByoSettlement(byoParams())).resolves.toBeUndefined();
+
+    expect(mocks.log.warn).toHaveBeenCalledWith({ err: expect.stringContaining('db down') }, expect.stringContaining('Failed to record BYO'));
   });
 });

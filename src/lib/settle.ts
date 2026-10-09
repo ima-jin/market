@@ -25,6 +25,7 @@
 import { createLogger } from '@ima-jin/logger';
 import { computeFeeCents, resolveSettlementChain, type FairSettlementEntry } from '@ima-jin/fair';
 import { getAppServiceToken } from '@/lib/app-token';
+import { STRIPE_BYO_RAIL } from '@/lib/card-rail';
 import { payServiceUrl } from '@/lib/env';
 import { saveSettlementSnapshot, type PayeeChainEntry, type PendingCheckout } from '@/lib/pending-checkout';
 
@@ -124,6 +125,41 @@ async function saveReceipt(params: SettleListingPurchaseParams): Promise<void> {
     log.info({ listingId }, '[settle] .fair settlement snapshot saved to listing metadata');
   } catch (snapshotError) {
     log.warn({ err: String(snapshotError) }, '[settle] Failed to snapshot .fair to listing (non-fatal)');
+  }
+}
+
+interface RecordByoSettlementParams {
+  listingId: string;
+  /** Stripe Checkout session id of the payment (on the seller's own account). */
+  sessionId: string;
+  amountCents: number;
+  currency: string;
+  fairManifest: FairManifest | null;
+}
+
+/**
+ * A purchase paid on the seller's OWN Stripe account (#2773) is already settled by the kernel: it
+ * completed the pay row from the seller's `payment_intent.succeeded` and told market, so there is
+ * nothing to settle on-platform and `POST /pay/api/settle` would refuse it (409). Record that
+ * receipt on the listing and drop the pending entry. No payee chain is carried: the money never
+ * touched the platform, so nothing was distributed. Failure is non-fatal, like `settleListingPurchase`.
+ */
+export async function recordByoSettlement(params: RecordByoSettlementParams): Promise<void> {
+  const { listingId, sessionId, amountCents, currency, fairManifest } = params;
+  try {
+    await saveSettlementSnapshot(listingId, sessionId, {
+      version: fairManifest?.version || '1.0',
+      settledAt: new Date().toISOString(),
+      totalAmount: amountCents / 100,
+      netAmount: amountCents / 100,
+      currency,
+      fees: [],
+      chain: [],
+      rail: STRIPE_BYO_RAIL,
+    });
+    log.info({ listingId }, '[settle] Purchase paid on the seller\'s own Stripe account — recorded, nothing to settle on-platform');
+  } catch (snapshotError) {
+    log.warn({ err: String(snapshotError) }, '[settle] Failed to record BYO settlement receipt (non-fatal)');
   }
 }
 

@@ -7,6 +7,7 @@ import { resolveMediaRef } from '@/lib/media';
 import { apiFetch, buildPublicUrl } from '@ima-jin/config';
 import PriceDisplay from '../../components/PriceDisplay';
 import { OnboardGate } from '@/components/OnboardGate';
+import { NO_CARD_RAIL_MESSAGE, OWNER_NO_CARD_RAIL_MESSAGE, SELLER_NO_CARD_RAIL } from '@/lib/card-rail';
 import { FairAccordion } from '@ima-jin/fair/react';
 import type { FairManifest } from '@ima-jin/fair';
 
@@ -147,15 +148,19 @@ async function resolveSessionDid(): Promise<string | null> {
   }
 }
 
-async function resolveSellerConnected(sellerDid: string): Promise<boolean> {
+/**
+ * Can the seller take a card payment? Pay's public card-rail check (#2757, replacing the removed
+ * `/api/connect/check`): true when the seller has connected their own Stripe key.
+ */
+async function resolveSellerCardRail(sellerDid: string): Promise<boolean> {
   try {
     const payUrl = buildPublicUrl('pay');
-    const connectRes = await fetch(
-      `${payUrl}/api/connect/check?did=${encodeURIComponent(sellerDid)}`
+    const railRes = await fetch(
+      `${payUrl}/api/card-rail/check?did=${encodeURIComponent(sellerDid)}`
     );
-    if (!connectRes.ok) return false;
-    const connectData = await connectRes.json();
-    return connectData.chargesEnabled ?? false;
+    if (!railRes.ok) return false;
+    const railData = await railRes.json();
+    return railData.cardEnabled ?? false;
   } catch {
     return true; // default true on error to avoid false blocks
   }
@@ -267,11 +272,13 @@ function OwnerManagementStrip({
   listing,
   actionLoading,
   actionError,
+  cardRailMissing,
   onUpdateStatus,
 }: Readonly<{
   listing: Listing;
   actionLoading: string | null;
   actionError: string | null;
+  cardRailMissing: boolean;
   onUpdateStatus: (status: string) => void;
 }>) {
   return (
@@ -334,6 +341,9 @@ function OwnerManagementStrip({
       {actionError && (
         <p className="w-full text-sm text-red-400 mt-1">{actionError}</p>
       )}
+      {cardRailMissing && (
+        <p className="w-full text-sm text-yellow-400 mt-1">{OWNER_NO_CARD_RAIL_MESSAGE}</p>
+      )}
     </div>
   );
 }
@@ -366,7 +376,7 @@ function PurchaseSection({
     if (paymentsUnavailable) {
       return (
         <p className="text-sm text-gray-500 dark:text-gray-400 italic px-1">
-          Payments not yet available
+          {NO_CARD_RAIL_MESSAGE}
         </p>
       );
     }
@@ -395,7 +405,7 @@ function PurchaseSection({
     if (paymentsUnavailable) {
       return (
         <p className="text-sm text-gray-500 dark:text-gray-400 italic px-1">
-          Payments not yet available
+          {NO_CARD_RAIL_MESSAGE}
         </p>
       );
     }
@@ -451,6 +461,11 @@ export default function ListingDetail() {
       });
       const data = await res.json();
       if (!res.ok) {
+        if (data.code === SELLER_NO_CARD_RAIL) {
+          // The seller has no card rail: hide the card button; the plain message takes its place.
+          setSellerConnected(false);
+          return;
+        }
         setBuyError(data.error || 'Purchase failed. Please try again.');
         return;
       }
@@ -496,8 +511,8 @@ export default function ListingDetail() {
         const did = await resolveSessionDid();
         if (did) setSessionDid(did);
 
-        // Check if seller has Stripe Connect enabled
-        setSellerConnected(await resolveSellerConnected(data.sellerDid));
+        // Check if seller has a card rail (their own connected Stripe key)
+        setSellerConnected(await resolveSellerCardRail(data.sellerDid));
 
         // Fetch other listings by this seller
         setOtherListings(await fetchOtherListingsForSeller(data.sellerDid, data.id));
@@ -629,6 +644,7 @@ export default function ListingDetail() {
             listing={listing}
             actionLoading={actionLoading}
             actionError={actionError}
+            cardRailMissing={listing.price > 0 && sellerConnected === false}
             onUpdateStatus={updateStatus}
           />
         )}
