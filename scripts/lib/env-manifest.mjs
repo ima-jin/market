@@ -162,6 +162,9 @@ function checkEnvironmentSplit(get, target, errors) {
 
 function collectWarnings(get, target) {
   const warnings = [];
+  if (get('IMAJIN_APP_CLAIM_CODE') !== '') {
+    warnings.push('IMAJIN_APP_CLAIM_CODE is ignored — claim at /market/claim and delete IMAJIN_APP_CLAIM_CODE from the env file.');
+  }
   const port = get('PORT');
   if (port !== '' && port !== String(TARGETS[target].port)) {
     warnings.push(`PORT is set in the env file but ${TARGETS[target].name} runs on ${TARGETS[target].port}; the pm2 entry's value wins.`);
