@@ -49,6 +49,14 @@ describe('env contract coverage', () => {
     expect(pkg.dependencies['@ima-jin/auth-client']).toBe('0.8.18');
   });
 
+  it('documents kernel-first and signed manifest Sync before upgrading each environment', () => {
+    const runbook = read('docs/DEPLOY.md');
+    expect(runbook).toContain('ima-jin/imajin-ai#2801');
+    expect(runbook).toContain('select **Sync manifest secrets** on `/jin`');
+    expect(runbook).toContain('on each environment before upgrading its app');
+    expect(runbook).toContain('already-claimed app fail closed at boot');
+  });
+
   it('has no shared callback credential or secret-generation instructions in operator contracts', () => {
     const retired = ['WEBHOOK', 'SECRET'].join('_');
     const generation = ['openssl', 'rand'].join(' ');

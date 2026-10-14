@@ -7,6 +7,14 @@ interface SelfSecretsStore {
   [SELF_SECRETS_KEY]?: Readonly<Record<string, string>> | null;
 }
 const store = globalThis as SelfSecretsStore;
+/** Migration aid only: env material is never used as a credential. */
+export function warnIgnoredSelfSecretEnv(): void {
+  for (const { name } of manifest.secrets) {
+    if (process.env[name]) {
+      console.warn(`${name} is ignored; it is issued by the kernel vault. Delete it from the env file.`);
+    }
+  }
+}
 
 export class SelfSecretsUnavailableError extends Error {
   constructor() {

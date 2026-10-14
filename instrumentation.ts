@@ -45,6 +45,16 @@ export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     validateSigningKeyBootEnv();
     const { bootstrapSigningIdentity } = await import('@/lib/signing-identity');
-    await bootstrapSigningIdentity();
+    const { SelfSecretsUnavailableError } = await import('@/lib/self-secrets');
+    try {
+      await bootstrapSigningIdentity();
+    } catch (error) {
+      if (error instanceof SelfSecretsUnavailableError) {
+        // Do not leave Next's listening socket alive after failed instrumentation.
+        console.error(error.message);
+        process.exit(1);
+      }
+      throw error;
+    }
   }
 }

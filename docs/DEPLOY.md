@@ -49,6 +49,15 @@ win. Note that step 2 swaps in the new ref's `deploy.sh`, so a change to the scr
    non-zero. (The endpoint proves the process booted — `instrumentation.ts` refuses to start without a valid
    app DID — but does not query the database. An unclaimed app reports `claimed: false`.)
 
+## Upgrade order (each environment independently)
+
+Before upgrading market, use the approved operator tool to deploy a kernel that includes
+ima-jin/imajin-ai#2801, then select **Sync manifest secrets** on `/jin` for this app and
+countersign the proposal. Do this on each environment before upgrading its app.
+Skipping the kernel upgrade or manifest Sync makes an already-claimed app fail closed at boot.
+No secret is generated, revealed, pasted into a shell, or copied to an env file.
+If a stale vault-issued env entry remains, boot warns by name only that it is ignored and must
+be deleted; it is never used as a fallback.
 ## First deploy of an environment (fresh checkout)
 
 There is no checkout of this repo on the server yet. After the operator steps below are done, it is still one

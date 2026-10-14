@@ -12,6 +12,11 @@ import { POST } from '../route';
 
 const KERNEL_URL = 'https://dev-jin.imajin.test';
 const RATE_LIMIT = 5;
+const { loadFromVaultMock } = vi.hoisted(() => ({ loadFromVaultMock: vi.fn() }));
+vi.mock('@ima-jin/auth-client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@ima-jin/auth-client')>(),
+  loadFromVault: loadFromVaultMock,
+}));
 
 function postRequest(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request('http://localhost:3000/api/claim', {
@@ -35,6 +40,9 @@ describe('POST /api/claim', () => {
   let workDir: string;
 
   beforeEach(async () => {
+    loadFromVaultMock.mockReset().mockResolvedValue({
+      values: { SESSION_SECRET: 'FAKE_TEST_ONLY_VAULT_SESSION_MATERIAL' }, degraded: [],
+    });
     workDir = await mkdtemp(join(tmpdir(), 'imajin-claim-route-'));
     vi.stubEnv('IMAJIN_KERNEL_URL', KERNEL_URL);
     vi.stubEnv('IMAJIN_APP_KEYSTORE', join(workDir, 'keystore.json'));
@@ -86,6 +94,24 @@ describe('POST /api/claim', () => {
     await bootstrapSigningIdentity();
     expect(fetchMock.mock.calls[0][0]).toBe(`${KERNEL_URL}/api/apps/signing-key/fetch`);
     expect(await health().json()).toMatchObject({ claimed: true });
+  });
+
+  it('fails closed with exactly one names-only re-sync log if the vault fails after claim', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockKernelClaim({
+      appDid: 'did:imajin:app-under-test', privateKey: 'FAKE_TEST_ONLY_KEY',
+      publicKey: 'FAKE_TEST_ONLY_PUBLIC_KEY',
+    });
+    loadFromVaultMock.mockRejectedValue(new Error('FAKE_TEST_ONLY_PROVIDER_ERROR_MUST_NOT_LEAK'));
+    const response = await POST(postRequest({ claimCode: 'FAKE_BROWSER_CLAIM_CODE' }) as never);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: 'SESSION_SECRET unavailable from vault — on /jin select Sync manifest secrets, countersign, and restart market.',
+    });
+    expect(log.mock.calls).toEqual([[
+      'SESSION_SECRET unavailable from vault — on /jin select Sync manifest secrets, countersign, and restart market.',
+    ]]);
+    expect(await health().json()).toMatchObject({ claimed: false });
   });
 
   it('rejects a missing claim code without calling the kernel', async () => {

@@ -17,6 +17,20 @@ const nextConfig = {
   basePath,
   env: { NEXT_PUBLIC_BASE_PATH: basePath },
   reactStrictMode: true,
+  webpack(config, { isServer }) {
+    if (isServer) {
+      // Only the Node keystore entry is external. /handlers stays Next-bundled
+      // so its dynamic next/headers imports resolve in the framework.
+      config.externals.unshift(({ request }, callback) => {
+        if (request === '@ima-jin/auth-client') {
+          callback(null, 'commonjs @ima-jin/auth-client');
+        } else {
+          callback();
+        }
+      });
+    }
+    return config;
+  },
   async headers() {
     return [{ source: '/:path*', headers: [...tier2Headers(), ...tier3Headers()] }];
   },

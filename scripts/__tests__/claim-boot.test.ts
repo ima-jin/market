@@ -18,6 +18,11 @@ async function unusedPort(): Promise<number> {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   return address.port;
 }
+async function jsonResponse(response: Response) {
+  expect(response.headers.get('content-type'), `${response.url} status ${response.status}`)
+    .toContain('application/json');
+  return response.json();
+}
 
 async function waitForHealth(url: string): Promise<Response> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -50,7 +55,7 @@ it.skipIf(process.env.CLAIM_BOOT_SMOKE !== '1')('production boot ignores IMAJIN_
   const port = await unusedPort();
   const base = `http://127.0.0.1:${port}/market`;
   let output = '';
-  const start = () => {
+  const start = (mode = 'initial') => {
     const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(port)], {
       cwd: ROOT,
       env: {
@@ -62,7 +67,12 @@ it.skipIf(process.env.CLAIM_BOOT_SMOKE !== '1')('production boot ignores IMAJIN_
         IMAJIN_APP_CLAIM_CODE: 'FAKE_ENV_CLAIM_CODE_IGNORED',
         IMAJIN_APP_KEYSTORE: keystore,
         IMAJIN_KERNEL_URL: `http://127.0.0.1:${address.port}`,
+        IMAJIN_AUTH_URL: `http://127.0.0.1:${address.port}`,
+        NEXT_PUBLIC_APP_URL: base,
         NEXT_PUBLIC_BASE_PATH: '/market',
+        // Stub only loadFromVault in this test process; all claim/session code is real.
+        NODE_OPTIONS: `--require=${join(ROOT, 'scripts/__tests__/fixtures/vault-loader.cjs')}`,
+        FAKE_VAULT_TEST_MODE: mode,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -72,7 +82,7 @@ it.skipIf(process.env.CLAIM_BOOT_SMOKE !== '1')('production boot ignores IMAJIN_
   };
   let app = start();
   try {
-    expect(await (await waitForHealth(`${base}/api/health`)).json()).toMatchObject({ claimed: false });
+    expect(await jsonResponse(await waitForHealth(`${base}/api/health`))).toMatchObject({ claimed: false });
     expect(await (await fetch(base)).text()).toContain('href="/market/claim"');
     expect(await (await fetch(`${base}/claim`)).text()).toContain('Claim this app');
     const response = await fetch(`${base}/api/claim`, {
@@ -81,21 +91,43 @@ it.skipIf(process.env.CLAIM_BOOT_SMOKE !== '1')('production boot ignores IMAJIN_
       body: JSON.stringify({ claimCode: 'FAKE_BROWSER_CLAIM_CODE' }),
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect(await jsonResponse(response)).toEqual({
       appDid: 'did:imajin:app-under-test',
       publicKey: 'FAKE_TEST_SIGNING_PUBLIC_KEY',
     });
     expect((await stat(keystore)).mode & 0o777).toBe(0o600);
-    expect(await (await fetch(`${base}/api/health`)).json()).toMatchObject({ claimed: true });
+    expect(await jsonResponse(await fetch(`${base}/api/health`))).toMatchObject({ claimed: true });
     expect(await (await fetch(base)).text()).not.toContain('Not claimed yet');
     expect((await fetch(`${base}/claim`)).status).toBe(404);
     expect((await fetch(`${base}/api/claim`, { method: 'POST' })).status).toBe(404);
+    const login = await fetch(`${base}/api/auth/callback?attestation_id=FAKE_TEST_ONLY_ATTESTATION&user_did=did:imajin:user-test`, {
+      redirect: 'manual',
+    });
+    expect(login.status).toBe(307);
+    const cookie = login.headers.get('set-cookie')!.split(';')[0];
+    const session = () => fetch(`${base}/api/auth/session`, { headers: { cookie }, redirect: 'manual' });
+    expect(await jsonResponse(await session())).toMatchObject({ did: 'did:imajin:user-test' });
     await stop(app);
-    app = start();
-    expect(await (await waitForHealth(`${base}/api/health`)).json()).toMatchObject({ claimed: true });
+    app = start('rotated');
+    expect(await jsonResponse(await waitForHealth(`${base}/api/health`))).toMatchObject({ claimed: true });
+    expect(await jsonResponse(await session())).toBeNull();
+    // Claimed boot fails before serving with one safe log, regardless of provider text.
+    for (const failure of ['unreachable', 'missing']) {
+      await stop(app);
+      output = '';
+      app = start(failure);
+      const code = await new Promise<number | null>((resolve) => app.once('exit', resolve));
+      expect(code).toBe(1);
+      expect(output.match(/SESSION_SECRET unavailable from vault/g)).toHaveLength(1);
+      expect(output).toContain('/jin select Sync manifest secrets');
+      expect(output).not.toContain('FAKE_TEST_ONLY_PROVIDER_ERROR_MUST_NOT_LEAK');
+      await expect(fetch(`${base}/api/health`)).rejects.toThrow();
+    }
     expect(output).not.toContain('FAKE_BROWSER_CLAIM_CODE');
     expect(output).not.toContain('FAKE_ENV_CLAIM_CODE_IGNORED');
     expect(output).not.toContain('FAKE_TEST_SIGNING_PRIVATE_KEY');
+    expect(output).not.toContain('FAKE_TEST_ONLY_VAULT_SESSION_MATERIAL');
+    expect(output).not.toContain('FAKE_TEST_ONLY_ROTATED_SESSION_MATERIAL');
   } finally {
     await stop(app);
     await new Promise<void>((resolve, reject) => kernel.close((error) => error ? reject(error) : resolve()));

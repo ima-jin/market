@@ -3,7 +3,7 @@ import { createSessionToken, verifySessionToken } from '@ima-jin/auth-client';
 import manifest from '../../../imajin.app.json';
 import { authConfig } from '../auth-config';
 import {
-  clearSelfSecrets, getSessionSecret, loadSelfSecrets, SelfSecretsUnavailableError,
+  clearSelfSecrets, getSessionSecret, loadSelfSecrets, SelfSecretsUnavailableError, warnIgnoredSelfSecretEnv,
 } from '../self-secrets';
 import {
   bootstrapSigningIdentity, claimWithCode, getSigningIdentity, isAppClaimed,
@@ -66,6 +66,25 @@ describe('vault-only boot and sessions', () => {
     expect(process.env.SESSION_SECRET).toBe('');
     const token = await createSessionToken(user, authConfig);
     expect(await verifySessionToken(token, authConfig)).toMatchObject({ did: 'did:imajin:user-test' });
+  });
+
+  it('warns by name only when a vault-issued secret remains in env, never logging its value', async () => {
+    const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const stale = 'FAKE_TEST_ONLY_STALE_ENV_MATERIAL';
+    vi.stubEnv('SESSION_SECRET', stale);
+    await bootstrapSigningIdentity();
+    expect(log.mock.calls).toEqual([[
+      'SESSION_SECRET is ignored; it is issued by the kernel vault. Delete it from the env file.',
+    ]]);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(stale);
+    expect(getSessionSecret()).toBe(FAKE_VALUE);
+    expect(process.env.SESSION_SECRET).toBe(stale);
+  });
+
+  it('does not warn when declared secrets are absent from env', () => {
+    const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warnIgnoredSelfSecretEnv();
+    expect(log).not.toHaveBeenCalled();
   });
 
   it('never uses a stale env value before or after load', async () => {

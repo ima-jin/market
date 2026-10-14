@@ -4,6 +4,13 @@ import { fileURLToPath } from 'node:url';
 /** Test-only kernel; no real claim codes or signing material are accepted or returned. */
 export function createClaimKernel() {
   return createServer((request, response) => {
+    if (request.method === 'GET' && request.url.startsWith('/profile/api/profile/')) {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        did: 'did:imajin:user-test', displayName: 'Test user', handle: 'test-user',
+      }));
+      return;
+    }
     const paths = ['/api/apps/claim', '/api/apps/signing-key/fetch'];
     if (request.method !== 'POST' || !paths.includes(request.url)) {
       response.writeHead(404).end();
