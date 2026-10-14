@@ -8,7 +8,6 @@ import { ENV_VARS } from './env-manifest.mjs';
 
 const GROUPS = [
   ['Required on every deployed instance', ['required']],
-  ['First boot only', ['first-boot']],
   ['Optional', ['optional']],
   ['Forbidden', ['forbidden']],
   ['Set by Next.js / pm2 (never in the env file)', ['runtime-set']],
@@ -54,7 +53,8 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 - **\`IMAJIN_ENV\` and \`NEXT_PUBLIC_SERVICE_PREFIX\`.** \`dev\` / \`dev-\` on dev, **unset** on prod. A production build is
   \`NODE_ENV=production\` on both, so these are what tell dev from prod.
 - **Database.** Separate Postgres database per environment; the schema name is \`market\` in both.
-- **Identity.** Each environment has its own app DID, claim code and keystore file (\`IMAJIN_APP_KEYSTORE\`).
+- **Identity.** Each environment has its own app DID and keystore file (\`IMAJIN_APP_KEYSTORE\`). Approve on
+  the kernel's \`/jin\`, then paste the one-time code only in \`/market/claim\` in the browser; no env edit or restart.
 - **Secrets.** \`SESSION_SECRET\` and \`WEBHOOK_SECRET\` differ per environment.
 - **Port.** dev 3104, prod 7104 (from \`ecosystem.config.cjs\`, not the env file).
 `;

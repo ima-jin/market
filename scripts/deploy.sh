@@ -128,7 +128,7 @@ health_check() {
   done
   echo "deploy: ${app_name} did not report healthy at ${health_url} after $((HEALTH_ATTEMPTS * HEALTH_INTERVAL_SECONDS))s." >&2
   echo "deploy: inspect with: pm2 logs ${app_name} --lines 100" >&2
-  echo "deploy: a first boot needs IMAJIN_APP_CLAIM_CODE in the env file (docs/DEPLOY.md, 'First boot')." >&2
+  echo "deploy: verify IMAJIN_APP_DID and kernel connectivity; an unclaimed app boots without a keystore. Claim only at ${BASE_PATH}/claim (docs/DEPLOY.md)." >&2
   return 1
 }
 

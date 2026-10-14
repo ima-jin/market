@@ -11,6 +11,10 @@ import { ENV_VAR_NAMES, ENV_VARS, validateEnv } from '../lib/env-manifest.mjs';
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const read = (relative: string) => readFileSync(join(ROOT, relative), 'utf8');
 const CHECK_ENV = join(ROOT, 'scripts/check-env.mjs');
+// The installed SDK still supports this fallback; market must never expose it.
+const RETIRED_CLAIM_ENV = 'IMAJIN_APP_CLAIM_CODE';
+const RETIRED_CLAIM_WARNING =
+  'IMAJIN_APP_CLAIM_CODE is ignored — claim at /market/claim and delete IMAJIN_APP_CLAIM_CODE from the env file.';
 
 function childEnv(): NodeJS.ProcessEnv {
   return { PATH: process.env.PATH ?? '' } as unknown as NodeJS.ProcessEnv;
@@ -73,11 +77,33 @@ describe('env contract coverage', () => {
       const dist = join(base, pkg, 'dist');
       for (const file of walk(dist)) {
         for (const name of envNamesIn(readFileSync(file, 'utf8'))) {
+          if (pkg === 'auth-client' && name === RETIRED_CLAIM_ENV) {
+            expect(manifest.has(name)).toBe(false);
+            continue;
+          }
           if (!manifest.has(name)) undocumented.push(`${name} (@ima-jin/${pkg})`);
         }
       }
     }
     expect([...new Set(undocumented)]).toEqual([]);
+  });
+
+  it('keeps IMAJIN_APP_CLAIM_CODE absent except for the names-only cleanup warning', () => {
+    const result = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    const files = result.stdout.split('\0').filter((file) => file && !file.includes('__tests__/'));
+    for (const file of files) {
+      const source = read(file);
+      if (file === 'scripts/lib/env-manifest.mjs') {
+        const references = source.split('\n').filter((line) => line.includes(RETIRED_CLAIM_ENV));
+        expect(references).toEqual([
+          `  if (get('${RETIRED_CLAIM_ENV}') !== '') {`,
+          `    warnings.push('${RETIRED_CLAIM_WARNING}');`,
+        ]);
+      } else {
+        expect(source, file).not.toContain(RETIRED_CLAIM_ENV);
+      }
+    }
   });
 
   it('lists every variable in .env.example and docs/ENVIRONMENTS.md', () => {
@@ -117,7 +143,7 @@ describe('env contract coverage', () => {
   });
 });
 
-const GOOD_SECRET = 'a'.repeat(64);
+const GOOD_SECRET = 'FAKE_TEST_ONLY_NOT_A_SECRET'.repeat(3);
 
 function filled(file: string, overrides: Record<string, string> = {}) {
   return {
@@ -200,13 +226,27 @@ describe('validateEnv', () => {
     expect(short).not.toContain('tooshortsecretvalue');
   });
 
-  it('warns (without failing) about first-boot, port and logging leftovers', () => {
+  it.each([
+    ['dev', '.env.dev.example'],
+    ['prod', '.env.prod.example'],
+  ] as const)('warns about ignored IMAJIN_APP_CLAIM_CODE on %s without errors or value disclosure', (target, file) => {
+    const value = 'FAKE_ENV_CLAIM_CODE_IGNORED';
+    const result = validateEnv(filled(file, { [RETIRED_CLAIM_ENV]: value }), target);
+    expect(result).toEqual({ errors: [], warnings: [RETIRED_CLAIM_WARNING] });
+    expect(JSON.stringify(result)).not.toContain(value);
+  });
+
+  it.each(['', '   '])('does not warn about an empty legacy claim variable (%j)', (value) => {
+    expect(validateEnv(validProd({ [RETIRED_CLAIM_ENV]: value }), 'prod'))
+      .toEqual({ errors: [], warnings: [] });
+  });
+
+  it('warns (without failing) about port and logging leftovers', () => {
     const { errors, warnings } = validateEnv(
-      validProd({ IMAJIN_APP_CLAIM_CODE: 'once', PORT: '9999', LOG_DB_TRANSPORT: 'true' }),
+      validProd({ PORT: '9999', LOG_DB_TRANSPORT: 'true' }),
       'prod',
     );
     expect(errors).toEqual([]);
-    expect(warnings.join('\n')).toMatch(/IMAJIN_APP_CLAIM_CODE is set/);
     expect(warnings.join('\n')).toMatch(/PORT is set/);
     expect(warnings.join('\n')).toMatch(/LOG_DB_TRANSPORT=true/);
   });
@@ -230,6 +270,21 @@ describe('check-env CLI', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/is valid for prod/);
     expect(result.stdout + result.stderr).not.toContain(GOOD_SECRET);
+  });
+
+  it.each([
+    ['dev', '.env.dev.example'],
+    ['prod', '.env.prod.example'],
+  ] as const)('warns exactly once for a stale claim code in a %s env file without echoing its value', (target, example) => {
+    const file = join(dir, `stale-claim-${target}.env`);
+    const value = 'FAKE_STALE_CLAIM_CODE';
+    const env = filled(example, { [RETIRED_CLAIM_ENV]: value });
+    writeFileSync(file, `${Object.entries(env).map(([name, entry]) => `${name}=${entry}`).join('\n')}\n`);
+    const result = cli([target, '--file', file]);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe(`warn:  ${RETIRED_CLAIM_WARNING}\n`);
+    expect(result.stdout).toContain(`is valid for ${target}`);
+    expect(result.stdout + result.stderr).not.toContain(value);
   });
 
   it('exits 1 for an invalid file without echoing any value', () => {

@@ -6,13 +6,13 @@
  * This app is registered with the Imajin kernel (see docs/REGISTRATION.md)
  * and is identified by its own DID. It never reads a raw private key out of
  * an env file — its signing key comes from `@ima-jin/auth-client`'s
- * `loadAppSigningKey()` boot path (one-time claim code on first boot, local
- * bootstrap keystore on every later boot; see #7 and docs/REGISTRATION.md).
+ * `loadAppSigningKey()` boot path (local bootstrap keystore after claiming
+ * in the browser; see #7 and docs/REGISTRATION.md).
  * Refusing to boot on a misconfigured env catches the problem immediately
  * instead of serving requests no kernel call could ever authenticate.
  *
  * Unclaimed boot mode (#2427): `bootstrapSigningIdentity()` no longer
- * throws when neither a keystore nor `IMAJIN_APP_CLAIM_CODE` is present —
+ * throws when no keystore is present —
  * it boots without a signing identity, and `middleware.ts` serves a
  * minimal "not claimed yet" page for every route except `/claim`,
  * `/api/claim`, and `/api/health` until an operator pastes a claim code at

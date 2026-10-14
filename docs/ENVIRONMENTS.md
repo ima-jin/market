@@ -36,7 +36,8 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 - **`IMAJIN_ENV` and `NEXT_PUBLIC_SERVICE_PREFIX`.** `dev` / `dev-` on dev, **unset** on prod. A production build is
   `NODE_ENV=production` on both, so these are what tell dev from prod.
 - **Database.** Separate Postgres database per environment; the schema name is `market` in both.
-- **Identity.** Each environment has its own app DID, claim code and keystore file (`IMAJIN_APP_KEYSTORE`).
+- **Identity.** Each environment has its own app DID and keystore file (`IMAJIN_APP_KEYSTORE`). Approve on
+  the kernel's `/jin`, then paste the one-time code only in `/market/claim` in the browser; no env edit or restart.
 - **Secrets.** `SESSION_SECRET` and `WEBHOOK_SECRET` differ per environment.
 - **Port.** dev 3104, prod 7104 (from `ecosystem.config.cjs`, not the env file).
 
@@ -50,18 +51,12 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 | `IMAJIN_AUTH_URL` | runtime | `https://dev-jin.imajin.ai` | `https://jin.imajin.ai` | Kernel base URL for the Sign-in-with-Imajin flow (src/lib/auth-config.ts). Same host as IMAJIN_KERNEL_URL. |
 | `IMAJIN_KERNEL_URL` | runtime | `https://dev-jin.imajin.ai` | `https://jin.imajin.ai` | Kernel base URL (no path). Used by loadAppSigningKey() to fetch this app's signing key at boot, to mint this app's own app-service token (POST {IMAJIN_KERNEL_URL}/auth/api/apps/token/service) for pay checkout + settle, and by the kernel client. |
 | `PAY_SERVICE_URL` | runtime | `https://dev-jin.imajin.ai/pay` | `https://jin.imajin.ai/pay` | Kernel pay service base URL, including the /pay prefix. Checkout sessions are created with POST {PAY_SERVICE_URL}/api/checkout; purchases fail with a 500 while it is unset. |
-| `WEBHOOK_SECRET` (secret) | runtime | (32+ random bytes — openssl rand -hex 32) | (32+ random bytes — openssl rand -hex 32) | Shared secret the kernel presents on payment webhooks (POST /api/webhook) as `Authorization: Bearer <WEBHOOK_SECRET>` — the only accepted scheme; the legacy x-webhook-secret header and body secret get 401. The webhook rejects every request while it is unset. 32+ random bytes; set the same value as the kernel's MARKET_WEBHOOK_SECRET. Never the dev value on prod. |
-| `SESSION_SECRET` (secret) | runtime | (32+ random bytes — openssl rand -hex 32) | (32+ random bytes — openssl rand -hex 32) | Signs this app's session cookie (HS256, @ima-jin/auth-client). 32+ random bytes; distinct per environment. |
+| `WEBHOOK_SECRET` (secret) | runtime | (operator secret tooling) | (operator secret tooling) | Shared secret the kernel presents on payment webhooks (POST /api/webhook) as `Authorization: Bearer <WEBHOOK_SECRET>` — the only accepted scheme; the legacy x-webhook-secret header and body secret get 401. The webhook rejects every request while it is unset. 32+ random bytes; set the same value as the kernel's MARKET_WEBHOOK_SECRET. Never the dev value on prod. |
+| `SESSION_SECRET` (secret) | runtime | (operator secret tooling) | (operator secret tooling) | Signs this app's session cookie (HS256, @ima-jin/auth-client). 32+ random bytes; distinct per environment. |
 | `NEXT_PUBLIC_BASE_PATH` | build | `/market` | `/market` | Reverse-proxy path prefix the app is mounted under. Must be `/market`. Baked at build time; rebuild after changing. |
 | `NEXT_PUBLIC_APP_URL` | runtime | `https://dev-jin.imajin.ai/market` | `https://jin.imajin.ai/market` | This app's public URL. Its HOST is the `aud` used to verify scoped app tokens — it must match a host in this app's registered tokenAudiences (operator-confirmed at registration). |
 | `NEXT_PUBLIC_AUTH_URL` | build | `https://dev-jin.imajin.ai/auth` | `https://jin.imajin.ai/auth` | Public URL of the kernel auth service the browser talks to (the "enter your email to buy" gate: GET /api/session, POST /api/onboard). Includes the /auth prefix. Baked at build time. |
 | `IMAJIN_APP_DID` | runtime | `did:imajin:<dev app DID>` | `did:imajin:<prod app DID>` | This app's own did:imajin:… from registration (docs/REGISTRATION.md). instrumentation.ts refuses to boot without it. Not a secret. Separate DID for dev and prod. |
-
-## First boot only
-
-| Variable | When | Dev | Prod | Notes |
-|---|---|---|---|---|
-| `IMAJIN_APP_CLAIM_CODE` (secret) | runtime | (only on first boot) | (only on first boot) | One-time code from the kernel operator's /jin approval card. Needed only on the very first boot (no keystore yet) or a lost-keystore rebind; delete it after the first successful boot. |
 
 ## Optional
 
@@ -152,14 +147,13 @@ IMAJIN_AUTH_URL=https://dev-jin.imajin.ai
 IMAJIN_KERNEL_URL=https://dev-jin.imajin.ai
 PAY_SERVICE_URL=https://dev-jin.imajin.ai/pay
 
-# --- Secrets: generate with `openssl rand -hex 32`, distinct per environment ---
+# --- Secrets: operator secret tooling only, distinct per environment ---
 SESSION_SECRET=REPLACE_ME
 WEBHOOK_SECRET=REPLACE_ME
 
 # --- Identity (operator step: docs/REGISTRATION.md) ---
 IMAJIN_APP_DID=did:imajin:REPLACE_ME
-# First boot only — delete after the app has booted once.
-# IMAJIN_APP_CLAIM_CODE=
+# First boot: approve on /jin, then paste the code only in /market/claim.
 # Persistent, per-environment keystore (must survive deploys):
 IMAJIN_APP_KEYSTORE=/home/jin/.imajin/market.dev.keystore.json
 
@@ -196,14 +190,13 @@ IMAJIN_AUTH_URL=https://jin.imajin.ai
 IMAJIN_KERNEL_URL=https://jin.imajin.ai
 PAY_SERVICE_URL=https://jin.imajin.ai/pay
 
-# --- Secrets: generate with `openssl rand -hex 32`, distinct per environment ---
+# --- Secrets: operator secret tooling only, distinct per environment ---
 SESSION_SECRET=REPLACE_ME
 WEBHOOK_SECRET=REPLACE_ME
 
 # --- Identity (operator step: docs/REGISTRATION.md) ---
 IMAJIN_APP_DID=did:imajin:REPLACE_ME
-# First boot only — delete after the app has booted once.
-# IMAJIN_APP_CLAIM_CODE=
+# First boot: approve on /jin, then paste the code only in /market/claim.
 # Persistent, per-environment keystore (must survive deploys):
 IMAJIN_APP_KEYSTORE=/home/jin/.imajin/market.prod.keystore.json
 

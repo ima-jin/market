@@ -36,8 +36,8 @@ The kernel verifies both and returns `{ appDid, userDid, scopes }` — that trip
    `NEXT_PUBLIC_IMAJIN_APP_ID`, `SESSION_SECRET`, `APP_DB_SCHEMA`, `DATABASE_URL`, and
    `IMAJIN_KERNEL_URL`. This app refuses to start without `IMAJIN_APP_DID` set, or if a raw
    `IMAJIN_APP_PRIVATE_KEY` is present (see `instrumentation.ts`) — it fetches its own signing key
-   at boot via `@ima-jin/auth-client`'s `loadAppSigningKey()` instead. **Skip `IMAJIN_APP_CLAIM_CODE`
-   for now**: the operator path is *approve on `/jin` → open `<this app>/claim` → paste the code →
+   at boot via `@ima-jin/auth-client`'s `loadAppSigningKey()` instead. The only claim path is
+   *approve on `/jin` → open `<this app>/claim` → paste the code →
    done* — see [`docs/REGISTRATION.md`](./docs/REGISTRATION.md).
 4. **Migrate this app's own database** (its own Postgres schema only — see
    [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md); on a database that already holds the `market` schema, i.e. prod/dev,
@@ -53,7 +53,7 @@ The kernel verifies both and returns `{ appDid, userDid, scopes }` — that trip
    `/api/health` and `/api/spec` should respond immediately; `/api/me` returns your DID once
    you sign in through the header's "Sign in with Imajin" link.
 
-## Identity — minting the app's DID (claim flow)
+## Identity — minting the app's DID (browser claim flow)
 
 The app's identity is minted by the **kernel**, never by hand: no keys are generated, copied, or logged in this
 repo. Dev and prod are **separate registered apps** — each has its own DID, claim code and keystore.
@@ -61,17 +61,14 @@ repo. Dev and prod are **separate registered apps** — each has its own DID, cl
 1. **Operator mints a claim code on the kernel's `/jin`** (`https://dev-jin.imajin.ai/jin` for dev,
    `https://jin.imajin.ai/jin` for prod): approve the app's `apps.provision` card. The kernel returns the app's
    `did:imajin:…` and a **one-time claim code**.
-2. **Redeem it** — either way ends in the same `0600` bootstrap keystore at `IMAJIN_APP_KEYSTORE`:
-   - **Operator `/claim` page (preferred):** set only `IMAJIN_APP_DID` and start the app unclaimed. Until it is
-     claimed, every route serves a "not claimed yet" page except `/claim`, `/api/claim` and `/api/health`. Open
-     `<this app>/claim` (under the `/market` base path when served behind the kernel host's Caddy), paste the code,
-     done. `/claim` and `/api/claim` 404 once the keystore exists.
-   - **First-boot env path:** put `IMAJIN_APP_CLAIM_CODE=<code>` in that environment's `.env.local` and start the
-     app. `instrumentation.ts` calls `@ima-jin/auth-client`'s `loadAppSigningKey()`, which spends the code and
-     persists the keystore. **Delete `IMAJIN_APP_CLAIM_CODE`** once the app is healthy.
+2. **Redeem it only in the browser:** configure `IMAJIN_APP_DID` and start the app unclaimed. Until it is
+   claimed, every route serves a "not claimed yet" page except `/claim`, `/api/claim` and `/api/health`. Open
+   `<this app>/claim` (`/market/claim` behind the kernel host's Caddy), paste the code, and submit.
+   The app is live immediately — no env edit or restart. The exchange persists a `0600` bootstrap keystore
+   at `IMAJIN_APP_KEYSTORE`; `/claim` and `/api/claim` then return 404.
 3. Later boots use the keystore alone. A lost keystore needs a re-approval with `reissueClaim: true`.
 
-The claim code and keystore contents are never logged. The kernel-side flow and the keystore are identical either way.
+The claim code and keystore contents are never logged or placed in env.
 
 Full detail: [`docs/REGISTRATION.md`](./docs/REGISTRATION.md) and [`docs/DEPLOY.md`](./docs/DEPLOY.md#identity-the-claim-flow).
 
@@ -198,11 +195,10 @@ route (#2427) — see "This app's own signing key" below.
 
 This app never reads a raw private key from env. `instrumentation.ts` fails loud at boot if
 `IMAJIN_APP_PRIVATE_KEY` is set, and instead calls `@ima-jin/auth-client`'s `loadAppSigningKey()`.
-Without a claim code or keystore yet, this app boots in **unclaimed mode** (#2427): every route
+Without a keystore yet, this app boots in **unclaimed mode** (#2427): every route
 except `/claim`, `/api/claim`, and `/api/health` serves a minimal "not claimed yet" page. The
 operator path: approve provisioning on the kernel's `/jin` → open `<this app>/claim` → paste the
-one-time claim code → done — no ssh, no env edit, no restart. A one-time `IMAJIN_APP_CLAIM_CODE`
-env var still works for automated/CI deploys and takes precedence when set. Either path bootstraps
+one-time claim code → done — no ssh, no env edit, no restart. Only this browser path bootstraps
 a local `0600` keystore (`IMAJIN_APP_KEYSTORE`); every later boot re-authenticates with that
 keystore, no operator action needed. See
 [`docs/REGISTRATION.md`](./docs/REGISTRATION.md#4-claim-this-apps-own-signing-key-7-2427).

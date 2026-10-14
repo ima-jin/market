@@ -7,7 +7,7 @@ export function GET() {
     service: 'market',
     timestamp: new Date().toISOString(),
     // Unclaimed boot mode (#2427): false until an operator pastes a claim
-    // code at /claim (or IMAJIN_APP_CLAIM_CODE resolves it at boot).
+    // code at /claim; subsequent boots authenticate with the keystore.
     claimed: isAppClaimed(),
   });
 }

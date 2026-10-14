@@ -105,10 +105,7 @@ export async function POST(request: NextRequest) {
     }
     // Deliberately logs only a fixed message — never the claim code, and
     // never the raw kernel error body (which could echo request input).
-    console.error(
-      'POST /api/claim: claim exchange failed',
-      error instanceof Error ? error.message : 'unknown error'
-    );
+    console.error('POST /api/claim: claim exchange failed');
     return NextResponse.json({ error: 'Unable to redeem this claim code' }, { status: 400 });
   }
 }
