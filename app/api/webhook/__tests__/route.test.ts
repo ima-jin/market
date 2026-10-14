@@ -179,7 +179,7 @@ describe('POST /api/webhook — authorization', () => {
     ['path', { url: 'https://market.test/api/webhook' }],
     ['query', { url: `${callbackUrl}?changed=true` }],
     ['method', { method: 'PUT' }],
-  ])('rejects tampered %s', async (_label, changes) => {
+  ])('rejects tampered %s', async (_label, changes: { url?: string; method?: string; body?: string }) => {
     const request = signedRequest(PAID);
     const changed = new Request(changes.url ?? request.url, {
       method: changes.method ?? request.method, headers: request.headers,
