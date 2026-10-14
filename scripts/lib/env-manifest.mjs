@@ -194,7 +194,6 @@ export function validateEnv(env, target) {
   checkFixedValues(get, errors);
   checkKernelUrls(get, target, errors);
   checkSecret('SESSION_SECRET', get('SESSION_SECRET'), errors);
-  checkSecret('WEBHOOK_SECRET', get('WEBHOOK_SECRET'), errors);
   checkIdentity(get, errors);
   checkEnvironmentSplit(get, target, errors);
 

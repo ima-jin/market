@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appBaseUrl, kernelUrl, payServiceUrl, thisAppHost, webhookSecret } from '../env';
+import { appBaseUrl, kernelUrl, payServiceUrl, thisAppHost } from '../env';
 import { resolveAssetUrl, resolveMediaRef } from '../media';
 import { errorResponse, formatPrice, generateId, isZeroDecimal, jsonResponse } from '../utils';
 
@@ -92,15 +92,9 @@ describe('env', () => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
     vi.stubEnv('PAY_SERVICE_URL', '');
     vi.stubEnv('IMAJIN_KERNEL_URL', '');
-    vi.stubEnv('WEBHOOK_SECRET', '');
     expect(() => appBaseUrl()).toThrow(/NEXT_PUBLIC_APP_URL is not set/);
     expect(() => payServiceUrl()).toThrow(/PAY_SERVICE_URL is not set/);
     expect(kernelUrl()).toBeNull();
-    expect(webhookSecret()).toBeNull();
   });
 
-  it('returns the webhook secret when configured', () => {
-    vi.stubEnv('WEBHOOK_SECRET', 'shh');
-    expect(webhookSecret()).toBe('shh');
-  });
 });

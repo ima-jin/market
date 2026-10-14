@@ -43,6 +43,26 @@ function envNamesIn(source: string): string[] {
 describe('env contract coverage', () => {
   const manifest = new Set(ENV_VAR_NAMES);
 
+  it('pins the public auth SDK exactly to 0.8.18', () => {
+    const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string> };
+    expect(pkg.dependencies['@ima-jin/auth']).toBe('0.8.18');
+  });
+
+  it('has no shared callback credential or secret-generation instructions in operator contracts', () => {
+    const retired = ['WEBHOOK', 'SECRET'].join('_');
+    const generation = ['openssl', 'rand'].join(' ');
+    const contracts = [
+      '.env.example', '.env.dev.example', '.env.prod.example',
+      'scripts/lib/env-manifest.json', 'scripts/lib/env-manifest.mjs', 'scripts/check-env.mjs',
+      'scripts/lib/env-docs-render.mjs', 'README.md', 'AGENTS.md', 'api-spec/openapi.yaml',
+      ...readdirSync(join(ROOT, 'docs')).filter((file) => file.endsWith('.md')).map((file) => `docs/${file}`),
+    ];
+    for (const file of contracts) {
+      expect(read(file), file).not.toContain(retired);
+      expect(read(file), file).not.toContain(generation);
+    }
+  });
+
   it('has no duplicate manifest entries and every entry is complete', () => {
     expect(new Set(ENV_VAR_NAMES).size).toBe(ENV_VAR_NAMES.length);
     for (const variable of ENV_VARS) {
@@ -150,7 +170,6 @@ function filled(file: string, overrides: Record<string, string> = {}) {
     ...parseEnv(read(file)),
     IMAJIN_APP_DID: 'did:imajin:abc123',
     SESSION_SECRET: GOOD_SECRET,
-    WEBHOOK_SECRET: GOOD_SECRET,
     ...overrides,
   };
 }
@@ -161,9 +180,8 @@ describe('validateEnv', () => {
     ['prod', '.env.prod.example'],
   ] as const)('accepts the shipped %s example apart from the placeholders', (target, file) => {
     const { errors } = validateEnv(parseEnv(read(file)), target);
-    expect(errors).toHaveLength(3);
+    expect(errors).toHaveLength(2);
     expect(errors.join('\n')).toMatch(/SESSION_SECRET is still a placeholder/);
-    expect(errors.join('\n')).toMatch(/WEBHOOK_SECRET is still a placeholder/);
     expect(errors.join('\n')).toMatch(/IMAJIN_APP_DID is still the REPLACE_ME placeholder/);
   });
 
@@ -221,9 +239,9 @@ describe('validateEnv', () => {
   it('rejects placeholder and short secrets without echoing them', () => {
     const placeholder = errorsOf(validProd({ SESSION_SECRET: 'REPLACE_ME' }), 'prod');
     expect(placeholder).toMatch(/SESSION_SECRET is still a placeholder/);
-    const short = errorsOf(validProd({ WEBHOOK_SECRET: 'tooshortsecretvalue' }), 'prod');
-    expect(short).toMatch(/WEBHOOK_SECRET is shorter than 32 characters/);
-    expect(short).not.toContain('tooshortsecretvalue');
+    const short = errorsOf(validProd({ SESSION_SECRET: 'FAKE_SHORT' }), 'prod');
+    expect(short).toMatch(/SESSION_SECRET is shorter than 32 characters/);
+    expect(short).not.toContain('FAKE_SHORT');
   });
 
   it.each([

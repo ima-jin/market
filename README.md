@@ -98,8 +98,11 @@ Ported from the kernel's `apps/market` (ima-jin/imajin-ai#1989, step 2 of 5):
   seller settings and public profile widgets, handle/DID resolution, and the pay-service payment webhook.
 - **Pages** (`app/**/page.tsx`): browse, listing detail, create/edit, seller page, settings, checkout success.
 - **Auth:** every authenticated route goes through `authenticate()` (`src/lib/auth/authenticate.ts`): a scoped
-  `Authorization: Bearer <app-token>` for this app's host, or the shared session cookie as a fallback.
+  `Authorization: Bearer <app-token>` for the registry slug `market`, or the shared session cookie as a fallback.
   See [`docs/REGISTRATION.md`](./docs/REGISTRATION.md) §6.
+- **Kernel callbacks:** the kernel signs; `verifyKernelWebhook` verifies raw bytes, the app DID,
+  freshness and nonce before processing. No shared callback credential is needed. See
+  [`docs/DEPLOY.md`](./docs/DEPLOY.md#kernel-signed-payment-callbacks).
 - **Known kernel gaps** (filed as `gap(kernel)` issues, all refs ima-jin/imajin-ai#1989): `@ima-jin/media` (#2637),
   bus events (#2638), acting-as-scope (#2639), identity tier (#2640), `@ima-jin/onboard` (#2645).
 

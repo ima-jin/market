@@ -14,14 +14,14 @@ describe('authenticate', () => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://market.imajin.ai');
   });
 
-  it("scopes the token audience to this app's own host (#1974 pattern)", async () => {
+  it("scopes the token audience to this app's registry slug (SDK 0.8.18)", async () => {
     requireSessionOrAppTokenMock.mockResolvedValue({ auth: { did: 'did:imajin:owner', scopes: [], via: 'token' } });
 
     const request = new Request('https://market.imajin.ai/api/listings');
     const result = await authenticate(request);
 
     expect(requireSessionOrAppTokenMock).toHaveBeenCalledWith(request, {
-      aud: 'market.imajin.ai',
+      slug: 'market',
       requireScopes: undefined,
     });
     expect('auth' in result && result.auth).toEqual({ did: 'did:imajin:owner', scopes: [], via: 'token' });
@@ -43,7 +43,7 @@ describe('authenticate', () => {
     });
 
     expect(requireSessionOrAppTokenMock).toHaveBeenCalledWith(expect.anything(), {
-      aud: 'market.imajin.ai',
+      slug: 'market',
       requireScopes: ['market:write'],
     });
     expect(result).toEqual({ error: 'Missing required scope(s): market:write', status: 403 });

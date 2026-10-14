@@ -20,9 +20,17 @@
     "name": "AUTH_SERVICE_URL",
     "status": "required",
     "phase": "runtime",
-    "summary": "Kernel auth service base URL, including the /auth prefix. Read by @ima-jin/auth for session and app-token verification.",
+    "summary": "Kernel auth service base URL, including the /auth prefix. Read by @ima-jin/auth for session/app-token verification and kernel webhook public signing-key discovery.",
     "dev": "https://dev-jin.imajin.ai/auth",
     "prod": "https://jin.imajin.ai/auth"
+  },
+  {
+    "name": "IMAJIN_APP_AUD",
+    "status": "optional",
+    "phase": "runtime",
+    "summary": "Published SDK override for the scoped app-token audience (default registry slug market). Never a shared path-routed kernel host. Unset for normal market deployments. This is not the webhook audience, which remains IMAJIN_APP_DID.",
+    "dev": "(unset)",
+    "prod": "(unset)"
   },
   {
     "name": "IMAJIN_AUTH_URL",
@@ -49,15 +57,6 @@
     "prod": "https://jin.imajin.ai/pay"
   },
   {
-    "name": "WEBHOOK_SECRET",
-    "status": "required",
-    "phase": "runtime",
-    "summary": "Shared secret the kernel presents on payment webhooks (POST /api/webhook) as `Authorization: Bearer <WEBHOOK_SECRET>` — the only accepted scheme; the legacy x-webhook-secret header and body secret get 401. The webhook rejects every request while it is unset. 32+ random bytes; set the same value as the kernel's MARKET_WEBHOOK_SECRET. Never the dev value on prod.",
-    "dev": "(operator secret tooling)",
-    "prod": "(operator secret tooling)",
-    "secret": true
-  },
-  {
     "name": "SESSION_SECRET",
     "status": "required",
     "phase": "runtime",
@@ -78,7 +77,7 @@
     "name": "NEXT_PUBLIC_APP_URL",
     "status": "required",
     "phase": "runtime",
-    "summary": "This app's public URL. Its HOST is the `aud` used to verify scoped app tokens — it must match a host in this app's registered tokenAudiences (operator-confirmed at registration).",
+    "summary": "This app's public URL used for redirects and checkout callbacks. Scoped tokens use the registry slug `market`; webhook signatures use IMAJIN_APP_DID.",
     "dev": "https://dev-jin.imajin.ai/market",
     "prod": "https://jin.imajin.ai/market"
   },

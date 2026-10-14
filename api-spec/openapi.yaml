@@ -13,7 +13,7 @@ info:
 
 
     **Authentication.** Every authenticated route accepts EITHER a scoped app token
-    (`Authorization: Bearer <app-token>`, audience = this app's host, minted via the
+    (`Authorization: Bearer <app-token>`, audience = registry slug market, minted via the
     kernel's `POST /auth/api/tokens/app`) OR the shared kernel session cookie as a
     fallback. Routes marked with an empty security requirement (`{}`) are public but
     return more to a signed-in caller. All authenticated routes act as the caller's own
@@ -44,21 +44,20 @@ components:
       type: http
       scheme: bearer
       description: >
-        Scoped app token (audience = this app's host). Preferred. A bearer value that
+        Scoped app token (audience = registry slug market). Preferred. A bearer value that
         is not a valid app token for this audience falls through to the session cookie.
     cookieAuth:
       type: apiKey
       in: cookie
       name: imajin_session
       description: Shared kernel session cookie (fallback).
-    webhookSecret:
-      type: http
-      scheme: bearer
+    kernelSignature:
+      type: apiKey
+      in: header
+      name: x-kernel-signature
       description: >
-        `Authorization: Bearer <WEBHOOK_SECRET>`, the shared secret the kernel presents
-        server-to-server. This is the only accepted scheme: the legacy `x-webhook-secret`
-        header and a `secret` in the JSON body are rejected with 401. If the app has no
-        `WEBHOOK_SECRET` configured every request is rejected.
+        Ed25519 kernel signature binding audience, timestamp, nonce, method, path/query and exact
+        body bytes. All five x-kernel-* headers are required. No legacy Bearer fallback.
   schemas:
     Error:
       type: object
@@ -850,7 +849,9 @@ paths:
       operationId: handleWebhook
       summary: Payment events from the pay service
       description: >
-        Authenticated by `Authorization: Bearer <WEBHOOK_SECRET>`, not by a user credential.
+        Authenticated by a kernel Ed25519 signature before parsing or business side effects.
+        Audience must equal IMAJIN_APP_DID, timestamp must be within ±300 seconds, and
+        each nonce is accepted only once. Retries must be freshly signed.
         On a successful payment (`type: payment.succeeded`, or `status: paid | succeeded`) a
         single-quantity or unlimited listing is marked `sold`; a multi-quantity listing is
         decremented (and marked `sold` at zero), and a listing with a `.fair` chain is settled
@@ -861,7 +862,32 @@ paths:
         payment). Any other event is acknowledged and ignored.
       tags: [market]
       security:
-        - webhookSecret: []
+        - kernelSignature: []
+      parameters:
+        - name: x-kernel-audience
+          in: header
+          required: true
+          schema: { type: string }
+          description: "Recipient app DID, not the app-token slug."
+        - name: x-kernel-timestamp
+          in: header
+          required: true
+          schema: { type: string, pattern: "^[0-9]+$" }
+          description: "Unix timestamp in seconds."
+        - name: x-kernel-nonce
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+        - name: x-kernel-kid
+          in: header
+          required: true
+          schema: { type: string }
+          description: "Active signing-key identifier from trusted public discovery."
+        - name: x-kernel-signature
+          in: header
+          required: true
+          schema: { type: string, pattern: "^[0-9a-fA-F]{128}$" }
+          description: "Hex Ed25519 signature over the SDK v1 canonical payload."
       requestBody:
         required: true
         content:
@@ -896,8 +922,18 @@ paths:
                 properties:
                   received: { type: boolean }
         "401":
-          description: Missing or wrong secret (or none configured)
+          description: Missing, invalid, tampered, wrong-audience, stale, future or replayed signature
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "500": { $ref: "#/components/responses/ServerError" }
+        "400":
+          description: Correctly signed body is not valid JSON
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Public discovery, trust or store failure; no business side effects
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }

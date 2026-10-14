@@ -129,6 +129,14 @@ If the local keystore is ever lost (disk wipe, redeploy to a fresh host), ask th
 to re-approve `apps.provision` with `reissueClaim: true` for a fresh claim code — redeeming it also
 revokes the lost keystore's bootstrap key. Redeem the fresh code only through `/market/claim`.
 
+## Kernel payment notifications
+
+The kernel signs and market verifies with the published SDK's `verifyKernelWebhook`, bound to
+this deployment's public `IMAJIN_APP_DID`. Set the matching `AUTH_SERVICE_URL`; no shared callback
+credential is generated, exchanged or copied. Registration/rotation and re-sync are operator tool
+steps on `/jin`. See [DEPLOY.md](./DEPLOY.md#kernel-signed-payment-callbacks) for public key pins,
+replay storage and proxy requirements. The webhook audience is the app DID, not the token slug.
+
 ## 5. List or manage your apps later
 
 ```bash
@@ -143,17 +151,17 @@ not by this template — see the kernel's own `/auth/developer/apps` UI.
 
 Every authenticated route goes through one function, `authenticate()`
 (`src/lib/auth/authenticate.ts`), which wraps `@ima-jin/auth`'s `requireSessionOrAppToken`
-(the ima-jin/imajin-ai#1974 pattern). A caller mints a token for this app's host:
+(the ima-jin/imajin-ai#1974 pattern). The published SDK 0.8.18 requires a registry slug. A caller mints a token for `market`:
 
 ```bash
 curl -X POST "${IMAJIN_AUTH_URL}/api/tokens/app" \
   -H "Content-Type: application/json" \
   -H "Cookie: <caller's own kernel session cookie>" \
-  -d '{ "aud": "market.imajin.ai", "scopes": [] }'
+  -d '{ "aud": "market", "scopes": [] }'
 ```
 
-and calls this app with `Authorization: Bearer <token>`. The audience must equal the host of
-`NEXT_PUBLIC_APP_URL`. The shared session cookie is accepted as a fallback. Set `AUTH_SERVICE_URL`
+and calls this app with `Authorization: Bearer <token>`. The audience is the registry slug `market`, not the shared path-routed host.
+The SDK supports a non-secret `IMAJIN_APP_AUD` override; leave it unset for normal deployments. The shared session cookie is accepted as a fallback. Set `AUTH_SERVICE_URL`
 (see `.env.example`); `@ima-jin/auth` uses it to validate the cookie fallback.
 
 Two kernel-side limits are tracked as issues: app tokens carry no acting-as-scope (ima-jin/imajin-ai#2639)

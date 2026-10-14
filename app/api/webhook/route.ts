@@ -36,6 +36,7 @@ interface WebhookBody {
     sessionId?: string;
   };
 }
+
 function isPaymentSuccess(body: WebhookBody): boolean {
   return body.type === 'payment.succeeded' || body.status === 'paid' || body.status === 'succeeded';
 }
@@ -178,7 +179,6 @@ export async function POST(request: NextRequest) {
     return errorResponse('Unauthorized', 401);
   }
   try {
-
     if (isPaymentSuccess(body)) {
       await processSuccessfulPayment(body);
     }

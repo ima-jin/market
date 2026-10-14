@@ -55,7 +55,10 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 - **Database.** Separate Postgres database per environment; the schema name is \`market\` in both.
 - **Identity.** Each environment has its own app DID and keystore file (\`IMAJIN_APP_KEYSTORE\`). Approve on
   the kernel's \`/jin\`, then paste the one-time code only in \`/market/claim\` in the browser; no env edit or restart.
-- **Secrets.** \`SESSION_SECRET\` and \`WEBHOOK_SECRET\` differ per environment.
+- **Secrets.** \`SESSION_SECRET\` is provisioned per environment through the approved secret tool.
+- **Callbacks.** The kernel signs and the app verifies public keys using \`IMAJIN_APP_DID\` and \`AUTH_SERVICE_URL\`.
+  No shared callback credential is needed. See [DEPLOY.md](./DEPLOY.md#kernel-signed-payment-callbacks) for
+  persistent public pins, replay storage and proxy requirements.
 - **Port.** dev 3104, prod 7104 (from \`ecosystem.config.cjs\`, not the env file).
 `;
 
