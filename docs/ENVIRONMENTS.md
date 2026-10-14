@@ -6,9 +6,9 @@ scripts — with what it does, when it is read, and its dev and prod values. Thi
 (or an installed `@ima-jin/*` package) starts reading a variable that is not documented here, or if this file is
 not the output of `node scripts/gen-env-docs.mjs`.
 
-No secret values live in this repo. Examples are shape-only placeholders; real values live in the untracked
-`.env.local` on each host. Key material is never an env var: this app's signing key is fetched at boot through the
-kernel claim flow ([REGISTRATION.md](./REGISTRATION.md)).
+No secret values live in this repo. Examples are shape-only placeholders. Env holds only the keystore path,
+database connection, kernel URLs and non-secret config. Session signing material is fetched from the vault
+at boot and held in memory only ([REGISTRATION.md](./REGISTRATION.md)); it is never an env variable.
 
 ## The env files
 
@@ -38,7 +38,9 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 - **Database.** Separate Postgres database per environment; the schema name is `market` in both.
 - **Identity.** Each environment has its own app DID and keystore file (`IMAJIN_APP_KEYSTORE`). Approve on
   the kernel's `/jin`, then paste the one-time code only in `/market/claim` in the browser; no env edit or restart.
-- **Secrets.** `SESSION_SECRET` is provisioned per environment through the approved secret tool.
+- **Session signing.** The kernel issues and seals the declared recipe during provision/claim; boot loads it into memory.
+  For existing apps, select **Sync manifest secrets** on `/jin` and countersign. Rotate there, then restart through
+  the operator tool; no secret file edit.
 - **Callbacks.** The kernel signs and the app verifies public keys using `IMAJIN_APP_DID` and `AUTH_SERVICE_URL`.
   No shared callback credential is needed. See [DEPLOY.md](./DEPLOY.md#kernel-signed-payment-callbacks) for
   persistent public pins, replay storage and proxy requirements.
@@ -54,7 +56,6 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 | `IMAJIN_AUTH_URL` | runtime | `https://dev-jin.imajin.ai` | `https://jin.imajin.ai` | Kernel base URL for the Sign-in-with-Imajin flow (src/lib/auth-config.ts). Same host as IMAJIN_KERNEL_URL. |
 | `IMAJIN_KERNEL_URL` | runtime | `https://dev-jin.imajin.ai` | `https://jin.imajin.ai` | Kernel base URL (no path). Used by loadAppSigningKey() to fetch this app's signing key at boot, to mint this app's own app-service token (POST {IMAJIN_KERNEL_URL}/auth/api/apps/token/service) for pay checkout + settle, and by the kernel client. |
 | `PAY_SERVICE_URL` | runtime | `https://dev-jin.imajin.ai/pay` | `https://jin.imajin.ai/pay` | Kernel pay service base URL, including the /pay prefix. Checkout sessions are created with POST {PAY_SERVICE_URL}/api/checkout; purchases fail with a 500 while it is unset. |
-| `SESSION_SECRET` (secret) | runtime | (operator secret tooling) | (operator secret tooling) | Signs this app's session cookie (HS256, @ima-jin/auth-client). 32+ random bytes; distinct per environment. |
 | `NEXT_PUBLIC_BASE_PATH` | build | `/market` | `/market` | Reverse-proxy path prefix the app is mounted under. Must be `/market`. Baked at build time; rebuild after changing. |
 | `NEXT_PUBLIC_APP_URL` | runtime | `https://dev-jin.imajin.ai/market` | `https://jin.imajin.ai/market` | This app's public URL used for redirects and checkout callbacks. Scoped tokens use the registry slug `market`; webhook signatures use IMAJIN_APP_DID. |
 | `NEXT_PUBLIC_AUTH_URL` | build | `https://dev-jin.imajin.ai/auth` | `https://jin.imajin.ai/auth` | Public URL of the kernel auth service the browser talks to (the "enter your email to buy" gate: GET /api/session, POST /api/onboard). Includes the /auth prefix. Baked at build time. |
@@ -150,8 +151,7 @@ IMAJIN_AUTH_URL=https://dev-jin.imajin.ai
 IMAJIN_KERNEL_URL=https://dev-jin.imajin.ai
 PAY_SERVICE_URL=https://dev-jin.imajin.ai/pay
 
-# --- Secrets: operator secret tooling only, distinct per environment ---
-SESSION_SECRET=REPLACE_ME
+# Session signing material comes from the vault after claim, never env.
 # Kernel callbacks are signed; the app verifies public keys, without a shared credential.
 
 # --- Identity (operator step: docs/REGISTRATION.md) ---
@@ -193,8 +193,7 @@ IMAJIN_AUTH_URL=https://jin.imajin.ai
 IMAJIN_KERNEL_URL=https://jin.imajin.ai
 PAY_SERVICE_URL=https://jin.imajin.ai/pay
 
-# --- Secrets: operator secret tooling only, distinct per environment ---
-SESSION_SECRET=REPLACE_ME
+# Session signing material comes from the vault after claim, never env.
 # Kernel callbacks are signed; the app verifies public keys, without a shared credential.
 
 # --- Identity (operator step: docs/REGISTRATION.md) ---

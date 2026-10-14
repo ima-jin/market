@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppDidMismatchError, claimWithCode, isAppClaimed } from '@/lib/signing-identity';
 import { isRateLimited, recordAttempt, UNKNOWN_CLIENT_KEY } from '@/lib/claim-rate-limit';
+import { SelfSecretsUnavailableError } from '@/lib/self-secrets';
 
 /**
  * POST /api/claim — the operator `/claim` page's server-side counterpart
@@ -91,6 +92,10 @@ export async function POST(request: NextRequest) {
     const identity = await claimWithCode({ claimCode: validation.claimCode });
     return NextResponse.json({ appDid: identity.appDid, publicKey: identity.publicKey });
   } catch (error) {
+    if (error instanceof SelfSecretsUnavailableError) {
+      console.error(error.message);
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
     if (error instanceof AppDidMismatchError) {
       // Both DIDs are public identifiers, never key material — safe to
       // return and to have logged, though nothing here logs them anyway.

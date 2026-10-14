@@ -49,6 +49,15 @@ win. Note that step 2 swaps in the new ref's `deploy.sh`, so a change to the scr
    non-zero. (The endpoint proves the process booted — `instrumentation.ts` refuses to start without a valid
    app DID — but does not query the database. An unclaimed app reports `claimed: false`.)
 
+## Upgrade order (each environment independently)
+
+Before upgrading market, use the approved operator tool to deploy a kernel that includes
+ima-jin/imajin-ai#2801, then select **Sync manifest secrets** on `/jin` for this app and
+countersign the proposal. Do this on each environment before upgrading its app.
+Skipping the kernel upgrade or manifest Sync makes an already-claimed app fail closed at boot.
+No secret is generated, revealed, pasted into a shell, or copied to an env file.
+If a stale vault-issued env entry remains, boot warns by name only that it is ignored and must
+be deleted; it is never used as a fallback.
 ## First deploy of an environment (fresh checkout)
 
 There is no checkout of this repo on the server yet. After the operator steps below are done, it is still one
@@ -70,8 +79,10 @@ Use `~/dev/market` and `.env.dev.example` / `scripts/deploy.sh dev` for dev. Dep
   side (the operator's `/jin` approval card); this repo only redeems the resulting one-time code.
 - **Create the databases/roles** and put the connection strings in each `.env.local`. Prod/dev already contain the
   `market` schema; the baseline adopts it in place.
-- **Provision other secrets through operator secret tooling** (`SESSION_SECRET`, distinct per
-  environment). Never generate or copy them in a shell. Their vault integration is separate work, not a claim step.
+- **Session signing is vault-only.** The kernel issues and seals the recipe in `imajin.app.json` on
+  provision/claim. For an existing app select **Sync manifest secrets** on `/jin` and countersign.
+  Rotate there, countersign, then restart through the operator tool; no secret env edit. Boot refuses
+  to enable sessions if the vault is unreachable or the declaration is unavailable.
 - **Caddy** — the route already exists; verify it against the [snippet below](#caddy).
 
 ### One-time cutover checklist

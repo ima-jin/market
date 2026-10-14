@@ -57,15 +57,6 @@
     "prod": "https://jin.imajin.ai/pay"
   },
   {
-    "name": "SESSION_SECRET",
-    "status": "required",
-    "phase": "runtime",
-    "summary": "Signs this app's session cookie (HS256, @ima-jin/auth-client). 32+ random bytes; distinct per environment.",
-    "dev": "(operator secret tooling)",
-    "prod": "(operator secret tooling)",
-    "secret": true
-  },
-  {
     "name": "NEXT_PUBLIC_BASE_PATH",
     "status": "required",
     "phase": "build",

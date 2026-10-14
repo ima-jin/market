@@ -23,9 +23,9 @@ scripts — with what it does, when it is read, and its dev and prod values. Thi
 (or an installed \`@ima-jin/*\` package) starts reading a variable that is not documented here, or if this file is
 not the output of \`node scripts/gen-env-docs.mjs\`.
 
-No secret values live in this repo. Examples are shape-only placeholders; real values live in the untracked
-\`.env.local\` on each host. Key material is never an env var: this app's signing key is fetched at boot through the
-kernel claim flow ([REGISTRATION.md](./REGISTRATION.md)).
+No secret values live in this repo. Examples are shape-only placeholders. Env holds only the keystore path,
+database connection, kernel URLs and non-secret config. Session signing material is fetched from the vault
+at boot and held in memory only ([REGISTRATION.md](./REGISTRATION.md)); it is never an env variable.
 
 ## The env files
 
@@ -55,7 +55,9 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 - **Database.** Separate Postgres database per environment; the schema name is \`market\` in both.
 - **Identity.** Each environment has its own app DID and keystore file (\`IMAJIN_APP_KEYSTORE\`). Approve on
   the kernel's \`/jin\`, then paste the one-time code only in \`/market/claim\` in the browser; no env edit or restart.
-- **Secrets.** \`SESSION_SECRET\` is provisioned per environment through the approved secret tool.
+- **Session signing.** The kernel issues and seals the declared recipe during provision/claim; boot loads it into memory.
+  For existing apps, select **Sync manifest secrets** on \`/jin\` and countersign. Rotate there, then restart through
+  the operator tool; no secret file edit.
 - **Callbacks.** The kernel signs and the app verifies public keys using \`IMAJIN_APP_DID\` and \`AUTH_SERVICE_URL\`.
   No shared callback credential is needed. See [DEPLOY.md](./DEPLOY.md#kernel-signed-payment-callbacks) for
   persistent public pins, replay storage and proxy requirements.

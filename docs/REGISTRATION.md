@@ -66,7 +66,6 @@ cp .env.example .env.local
 # fill in:
 #   IMAJIN_APP_DID=<appDid from the response above>
 #   NEXT_PUBLIC_IMAJIN_APP_ID=<id from the response above>
-#   SESSION_SECRET=<provision through the operator's secret tooling>
 #   APP_DB_SCHEMA=<a name for this app's own Postgres schema — see docs/MIGRATIONS.md>
 #   DATABASE_URL=<this app's own Postgres connection string>
 #   IMAJIN_KERNEL_URL=<same host as IMAJIN_AUTH_URL above>
@@ -128,6 +127,19 @@ action required for an ordinary restart.
 If the local keystore is ever lost (disk wipe, redeploy to a fresh host), ask the kernel operator
 to re-approve `apps.provision` with `reissueClaim: true` for a fresh claim code — redeeming it also
 revokes the lost keystore's bootstrap key. Redeem the fresh code only through `/market/claim`.
+
+### Vault-backed session signing
+
+`imajin.app.json` declares the session signing recipe. The kernel issues and seals it during
+provision/claim. Market awaits `@ima-jin/auth-client` 0.8.18 `loadFromVault` using its own
+bootstrap keystore before enabling the signing identity or signed-in sessions. Values stay in
+process memory only; a stale env session variable is ignored.
+
+For an already-claimed app, select **Sync manifest secrets** on `/jin`, review and countersign
+the proposal. If boot reports the session signing name unavailable, check kernel connectivity
+and perform this re-sync step, then restart through the operator tool. There is no env fallback.
+For rotation, select **Rotate** on `/jin` and countersign, then restart through the operator tool.
+The next boot fetches the replacement without any file edit and invalidates existing sessions.
 
 ## Kernel payment notifications
 

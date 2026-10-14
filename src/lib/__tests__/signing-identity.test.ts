@@ -13,6 +13,18 @@ import {
 } from '../signing-identity';
 
 const KERNEL_URL = 'https://dev-jin.imajin.test';
+const { loadFromVaultMock } = vi.hoisted(() => ({ loadFromVaultMock: vi.fn() }));
+vi.mock('@ima-jin/auth-client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@ima-jin/auth-client')>(),
+  loadFromVault: loadFromVaultMock,
+}));
+
+beforeEach(() => {
+  loadFromVaultMock.mockReset().mockResolvedValue({
+    values: { SESSION_SECRET: 'FAKE_TEST_ONLY_SESSION_SIGNING_MATERIAL' },
+    degraded: [],
+  });
+});
 const SIGNING_IDENTITY_KEY = Symbol.for('imajin.app.signingIdentity');
 
 interface GlobalIdentitySlot {
