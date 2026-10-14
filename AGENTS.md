@@ -201,10 +201,10 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
 - **What it is:** Market — local commerce: listings (sale/rental), disputes, and seller settings. Forked from
   `imajin-app-template`; extracted from the kernel's in-monorepo `apps/market` (ima-jin/imajin-ai#1989).
 - **App DID:** _set at registration — see `docs/REGISTRATION.md` (not yet registered; registration is step 4 of 5)_
-- **Scopes:** none required by the routes today. Every inbound request is authenticated through one function,
+- **Scopes:** none required by the routes today. User requests are authenticated through one function,
   `authenticate()` (`src/lib/auth/authenticate.ts`, wrapping `@ima-jin/auth`'s `requireSessionOrAppToken`, the
-  #1974 pattern): a scoped `Authorization: Bearer <app-token>` (audience = this app's host) or the shared session
-  cookie as fallback. No route imports an auth primitive directly (`__tests__/boundary.test.ts` enforces this).
+  #1974 pattern): a scoped `Authorization: Bearer <app-token>` (audience = registry slug `market`) or the shared session
+  cookie as fallback. No user route imports an auth primitive directly (`__tests__/boundary.test.ts` enforces this).
   Ownership is enforced by this app: a listing's `sellerDid` must equal the caller's DID.
 - **Domain:** _TBD_
 - **Database:** Postgres schema `market` (`APP_DB_SCHEMA=market`), owned by this app via `migrations/`. Tables:
@@ -217,8 +217,8 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
   notify) do not fire for sales made here. Settlement does not depend on it: market settles its own purchases through
   pay's registered-app contract — it mints its own app-service token (`src/lib/app-token.ts`), checks out with a
   declared payee chain (`src/lib/settle.ts`), remembers the kernel payment per Stripe session
-  (`src/lib/pending-checkout.ts`, in `listings.metadata`), and settles from `POST /api/webhook`, which accepts only
-  `Authorization: Bearer <WEBHOOK_SECRET>`. Card payments are charged on the seller's OWN Stripe account (no Stripe
+  (`src/lib/pending-checkout.ts`, in `listings.metadata`), and settles from `POST /api/webhook`, which verifies kernel Ed25519 signatures
+  with `verifyKernelWebhook` bound to `IMAJIN_APP_DID` before any business processing. Card payments are charged on the seller's OWN Stripe account (no Stripe
   Connect): a payment the kernel already settled there arrives with `rail: stripe-byo`, and that notification IS the
   settlement — the webhook records the receipt and never calls `/pay/api/settle` (which refuses such a payment). A
   seller with no connected key gets `SELLER_NO_CARD_RAIL` (`src/lib/card-rail.ts`): the purchase route answers a plain

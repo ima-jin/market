@@ -5,13 +5,12 @@
  * Updates listing status/quantity accordingly.
  */
 
-import { timingSafeEqual } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
+import { KernelWebhookError, verifyKernelWebhook } from '@ima-jin/auth/kernel-webhook';
 import { createLogger } from '@ima-jin/logger';
 import { db, listings } from '@/db';
 import { STRIPE_BYO_RAIL } from '@/lib/card-rail';
-import { webhookSecret } from '@/lib/env';
 import { emitEvent } from '@/lib/kernel/events';
 import { readPendingCheckout } from '@/lib/pending-checkout';
 import { recordByoSettlement, settleListingPurchase, type FairManifest } from '@/lib/settle';
@@ -36,28 +35,6 @@ interface WebhookBody {
     currency?: string;
     sessionId?: string;
   };
-}
-
-function secretsMatch(provided: unknown, expected: string): boolean {
-  if (typeof provided !== 'string') return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-/**
- * Verify the caller (#2740, #2743). The kernel authenticates server-to-server with
- * `Authorization: Bearer <WEBHOOK_SECRET>`; that is the only accepted scheme — the legacy
- * `x-webhook-secret` header and body `secret` get 401. Fails closed: with no secret
- * configured, nothing is authorized.
- */
-function isWebhookAuthorized(request: NextRequest): boolean {
-  const expected = webhookSecret();
-  if (!expected) return false;
-
-  const authorization = request.headers.get('authorization');
-  const bearer = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : undefined;
-  return secretsMatch(bearer, expected);
 }
 
 function isPaymentSuccess(body: WebhookBody): boolean {
@@ -184,14 +161,24 @@ async function processSuccessfulPayment(body: WebhookBody): Promise<void> {
 }
 
 export async function POST(request: NextRequest) {
+  let body: WebhookBody;
   try {
-    const body = await request.json();
-
-    // Verify the caller (Bearer secret only)
-    if (!isWebhookAuthorized(request)) {
-      return errorResponse('Unauthorized', 401);
+    // Authenticate exact bytes and atomically consume the nonce before parsing.
+    // The expected recipient is local configuration, never a request header.
+    body = await verifyKernelWebhook<WebhookBody>(request, {
+      audience: process.env.IMAJIN_APP_DID ?? '',
+      authServiceUrl: process.env.AUTH_SERVICE_URL,
+    });
+  } catch (error) {
+    if (!(error instanceof KernelWebhookError) || ['STORE', 'DISCOVERY', 'TRUST'].includes(error.code)) {
+      return errorResponse('Webhook verification unavailable', 503);
     }
-
+    if (error.code === 'INVALID_BODY') {
+      return errorResponse('Invalid webhook body', 400);
+    }
+    return errorResponse('Unauthorized', 401);
+  }
+  try {
     if (isPaymentSuccess(body)) {
       await processSuccessfulPayment(body);
     }

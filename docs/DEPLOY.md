@@ -70,7 +70,7 @@ Use `~/dev/market` and `.env.dev.example` / `scripts/deploy.sh dev` for dev. Dep
   side (the operator's `/jin` approval card); this repo only redeems the resulting one-time code.
 - **Create the databases/roles** and put the connection strings in each `.env.local`. Prod/dev already contain the
   `market` schema; the baseline adopts it in place.
-- **Provision other secrets through operator secret tooling** (`SESSION_SECRET`, `WEBHOOK_SECRET`, distinct per
+- **Provision other secrets through operator secret tooling** (`SESSION_SECRET`, distinct per
   environment). Never generate or copy them in a shell. Their vault integration is separate work, not a claim step.
 - **Caddy** — the route already exists; verify it against the [snippet below](#caddy).
 
@@ -179,9 +179,33 @@ dev-jin.imajin.ai {
 
 Verify: `curl -fsS https://jin.imajin.ai/market/api/health` → `{"status":"ok","service":"market",…}`.
 
-The kernel delivers payment webhooks to `POST <public URL>/market/api/webhook` with
-`Authorization: Bearer <WEBHOOK_SECRET>` (the only accepted scheme; the value must equal the kernel's
-`MARKET_WEBHOOK_SECRET`); make sure the kernel side for each environment points at that environment's market URL.
+## Kernel-signed payment callbacks
+
+The kernel signs notifications to `POST <kernel origin>/market/api/webhook`; market verifies with
+`verifyKernelWebhook` from the public `@ima-jin/auth/kernel-webhook` export (npm 0.8.18). No shared
+callback credential is generated, copied or provisioned. Use the registered app DID in `IMAJIN_APP_DID`
+as the audience and the matching environment's `AUTH_SERVICE_URL` for HTTPS public discovery at
+`{AUTH_SERVICE_URL}/.well-known/kernel-signing-key`. The expected audience is never taken from a request.
+The kernel's legacy bridge is the transition, not a Bearer fallback in this app. Use a signing-capable
+kernel before upgrading the receiver. Operator configuration/rotation stays in the approved tools on
+`/jin`; re-sync through `/jin` rather than making or copying credentials.
+
+Keep `data/kernel-webhook-pins/` under the process cwd on persistent, writable storage, separate per
+environment and preserved across deploys and rollbacks. These pins contain only public keys. First
+use pins trusted discovery; rotation must overlap the pinned keys. Never delete pins to bypass a
+trust failure. The host must provide trusted Linux `/usr/bin/flock` (util-linux). Discovery, trust or
+storage failures return 503 with no business processing; signature, audience, freshness and replay
+failures return 401. Correctly signed non-JSON returns 400. Business-processing errors remain 500.
+
+The existing pm2 entry runs one fork worker. The SDK's atomic process-wide nonce store rejects
+replays in its inclusive ±300-second window; retries must carry a fresh nonce and signature. Replay
+memory does not survive restart. Before adding workers/replicas, or to preserve replay evidence
+across restarts, supply a shared durable `KernelWebhookNonceStore` via `nonceStore` with atomic
+insert-if-absent and expiry semantics. Do not scale this configuration without that adapter.
+Business settlement idempotency remains unchanged.
+
+The signed path includes the public `/market` prefix and query. Caddy must preserve that prefix
+as above; neither proxy nor app may rewrite signed bytes or signature headers.
 
 ### Settlement (`.fair` payouts)
 
@@ -208,8 +232,9 @@ rollback is only safe while migrations stay additive.
 - **Login loops on dev only** — `IMAJIN_ENV=dev` is missing (wrong session cookie name).
 - **`/dashboard` redirects to the prod kernel from dev** — `NEXT_PUBLIC_SERVICE_PREFIX=dev-` was not set at build
   time; set it and redeploy.
-- **Purchases return 500** — `PAY_SERVICE_URL` is unset; **payment webhooks are rejected (401)** — `WEBHOOK_SECRET` is
-  unset or differs from the kernel's `MARKET_WEBHOOK_SECRET`, or the caller is not sending it as `Authorization: Bearer`.
+- **Purchases return 500** — `PAY_SERVICE_URL` is unset. **Callbacks return 401** — check the app DID,
+  signature headers, signed path/bytes, timestamp and fresh nonce. **Callbacks return 503** — check public
+  discovery, pinned-key overlap, persistent writable pin storage and trusted `/usr/bin/flock`. Never bypass verification.
 - **Purchases of `.fair` listings return 503** — market's app-service token cannot be minted: the app is unclaimed, or
   `IMAJIN_KERNEL_URL` is unset/wrong. **Purchases are paid but never settle** — the operator has not approved
   `pay:settle` for this app's DID.

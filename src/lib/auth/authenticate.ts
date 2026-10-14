@@ -1,5 +1,4 @@
 import { requireSessionOrAppToken } from '@ima-jin/auth';
-import { thisAppHost } from '@/lib/env';
 
 /**
  * This app's entire inbound-auth surface, deliberately funneled through one
@@ -10,7 +9,7 @@ import { thisAppHost } from '@/lib/env';
  * future change to the mechanism is a one-file change.
  *
  * `requireSessionOrAppToken` accepts EITHER a scoped
- * `Authorization: Bearer <app-token>` (audience = this app's host) OR the
+ * `Authorization: Bearer <app-token>` (audience = registry slug `market`) OR the
  * shared kernel session cookie as a fallback.
  */
 export interface AuthenticatedCaller {
@@ -35,7 +34,7 @@ export async function authenticate(
   options?: AuthenticateOptions
 ): Promise<AuthenticateResult> {
   const result = await requireSessionOrAppToken(request, {
-    aud: thisAppHost(),
+    slug: 'market',
     requireScopes: options?.requireScopes,
   });
   if ('error' in result) {

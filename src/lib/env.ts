@@ -48,8 +48,3 @@ export function kernelUrl(): string | null {
   const value = process.env.IMAJIN_KERNEL_URL;
   return value ? trimTrailingSlashes(value) : null;
 }
-
-/** Shared secret the pay service sends with payment webhooks, or null when unset. */
-export function webhookSecret(): string | null {
-  return process.env.WEBHOOK_SECRET || null;
-}

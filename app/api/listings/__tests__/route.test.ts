@@ -57,13 +57,13 @@ describe('POST /api/listings', () => {
     expect(dbState.calls).toHaveLength(0);
   });
 
-  it('authenticates with an app token scoped to this app host', async () => {
+  it('authenticates with an app token scoped to this app registry slug', async () => {
     dbState.queue([{ id: 'lst_x' }]);
 
     await post(VALID);
 
     expect(mocks.requireSessionOrAppToken).toHaveBeenCalledWith(expect.any(Request), {
-      aud: 'market.imajin.ai',
+      slug: 'market',
       requireScopes: undefined,
     });
   });
