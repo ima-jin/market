@@ -53,7 +53,7 @@ The kernel verifies both and returns `{ appDid, userDid, scopes }` — that trip
    `/api/health` and `/api/spec` should respond immediately; `/api/me` returns your DID once
    you sign in through the header's "Sign in with Imajin" link.
 
-## Identity — minting the app's DID (claim flow)
+## Identity — minting the app's DID (browser claim flow)
 
 The app's identity is minted by the **kernel**, never by hand: no keys are generated, copied, or logged in this
 repo. Dev and prod are **separate registered apps** — each has its own DID, claim code and keystore.
