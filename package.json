@@ -16,7 +16,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@ima-jin/auth": "^0.8.13",
+    "@ima-jin/auth": "0.8.18",
     "@ima-jin/auth-client": "^0.8.8",
     "@ima-jin/config": "^0.8.13",
     "@ima-jin/fair": "^0.8.0",

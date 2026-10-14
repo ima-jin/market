@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@ima-jin/auth':
-        specifier: ^0.8.13
-        version: 0.8.13(drizzle-orm@0.45.3(postgres@3.4.9))(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
+        specifier: 0.8.18
+        version: 0.8.18(drizzle-orm@0.45.3(postgres@3.4.9))(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
       '@ima-jin/auth-client':
         specifier: ^0.8.8
         version: 0.8.8(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
@@ -913,8 +913,8 @@ packages:
     peerDependencies:
       next: '>=15.5.24'
 
-  '@ima-jin/auth@0.8.13':
-    resolution: {integrity: sha512-zQpDWnI9sihbtr5xVQ+7x8utS9Mggh7fhyoHC+jgVMS4WBlTZOjhJRpgMNEQWXFo3IuLFPdeF1qTqjCtL3BdiA==}
+  '@ima-jin/auth@0.8.18':
+    resolution: {integrity: sha512-JCVWQ7MEIK7eI22qFVBEt6wTcesRX4lKscwnH9EZNMoQK2ejCGph3FK2k6ZBsA0BLf6hNMxixLbTM1KDDDjk7A==}
     peerDependencies:
       drizzle-orm: ^0.45.1
       next: '>=15.5.24'
@@ -927,6 +927,11 @@ packages:
     peerDependencies:
       next: '>=15.5.24'
 
+  '@ima-jin/config@0.8.18':
+    resolution: {integrity: sha512-F8uVJfOESQ3yCCShPs1UUCW5frc5wUFSieT3nigskDo6WIbqBp8k69clGtRNyTIZ5bfQXzLBGRvNrXsFWJZxiw==}
+    peerDependencies:
+      next: '>=15.5.24'
+
   '@ima-jin/fair@0.8.0':
     resolution: {integrity: sha512-zetud/DJ7/kerPToiorMht2i/2Lmz0iV4YeOQg5aQ2KuSl70mHEl7iYXYh8/EHZjuwzEDlQS2yRSI9cZCbGfHA==}
     peerDependencies:
@@ -936,6 +941,15 @@ packages:
     resolution: {integrity: sha512-Lj1tclDfemGUYiw+RU6RTeMrXC82gaIR3c2dLjSga7fLxtwg+auRkWxMOuFIjBjh+jOmA+ohrKxHyulp12beZg==}
     peerDependencies:
       '@ima-jin/db': ^0.8.13
+      next: '>=15.5.24'
+    peerDependenciesMeta:
+      '@ima-jin/db':
+        optional: true
+
+  '@ima-jin/logger@0.8.18':
+    resolution: {integrity: sha512-P0MTJ+WrZrtl97DU+kCz8dre1JLsimxxRNmw7CKyeC4vTbad+uDW7OcQJvRYM8Vb47VufR5RXjYDJL5OSYZ95g==}
+    peerDependencies:
+      '@ima-jin/db': ^0.8.18
       next: '>=15.5.24'
     peerDependenciesMeta:
       '@ima-jin/db':
@@ -5142,10 +5156,10 @@ snapshots:
       jose: 5.10.0
       next: 15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
-  '@ima-jin/auth@0.8.13(drizzle-orm@0.45.3(postgres@3.4.9))(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))':
+  '@ima-jin/auth@0.8.18(drizzle-orm@0.45.3(postgres@3.4.9))(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))':
     dependencies:
-      '@ima-jin/config': 0.8.13(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
-      '@ima-jin/logger': 0.8.13(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
+      '@ima-jin/config': 0.8.18(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
+      '@ima-jin/logger': 0.8.18(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
       '@noble/curves': 1.9.7
       '@noble/ed25519': 2.3.0
       '@noble/hashes': 1.8.0
@@ -5159,6 +5173,10 @@ snapshots:
     dependencies:
       next: 15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
+  '@ima-jin/config@0.8.18(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))':
+    dependencies:
+      next: 15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+
   '@ima-jin/fair@0.8.0(react@18.3.1)':
     dependencies:
       '@noble/ed25519': 2.3.0
@@ -5167,6 +5185,12 @@ snapshots:
       react: 18.3.1
 
   '@ima-jin/logger@0.8.13(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))':
+    dependencies:
+      nanoid: 5.1.16
+      next: 15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      pino: 9.14.0
+
+  '@ima-jin/logger@0.8.18(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))':
     dependencies:
       nanoid: 5.1.16
       next: 15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
