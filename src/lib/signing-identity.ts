@@ -49,43 +49,39 @@ function writeSigningIdentity(identity: AppSigningKey | null): void {
  * True once this app has a real, vault-minted signing identity in memory —
  * either from this boot's `bootstrapSigningIdentity()` or from a later
  * `claimWithCode()` hot-swap. False in "unclaimed boot mode" (#2427): the
- * app booted without throwing because neither a bootstrap keystore nor an
- * `IMAJIN_APP_CLAIM_CODE` was present yet.
+ * app booted without throwing because no bootstrap keystore was present.
  */
 export function isAppClaimed(): boolean {
   return readSigningIdentity() !== null;
 }
 
 /**
- * True when `loadAppSigningKey()` has real material to exchange this boot —
- * an existing bootstrap keystore (every later boot) or a one-time claim
- * code (first boot only). Mirrors the SDK's own precondition check so this
- * module can decide to boot unclaimed *without* calling it at all, rather
- * than parsing its thrown error message.
+ * Only an existing bootstrap keystore can authenticate at boot. Without
+ * one, the operator must claim through the browser.
  */
-function hasClaimMaterial(): boolean {
+function hasBootstrapKeystore(): boolean {
   const keystorePath = resolveKeystorePath(process.env.IMAJIN_APP_KEYSTORE);
-  return readKeystore(keystorePath) !== null || Boolean(process.env.IMAJIN_APP_CLAIM_CODE);
+  return readKeystore(keystorePath) !== null;
 }
 
 /**
  * Fetches this app's own signing key from the kernel — via the local
- * bootstrap keystore when one already exists, or via a one-time claim code
- * on first boot (see `@ima-jin/auth-client`'s `loadAppSigningKey()`).
+ * bootstrap keystore when one already exists.
  *
- * Unclaimed boot mode (#2427): when neither a keystore nor
- * `IMAJIN_APP_CLAIM_CODE` is present, this returns without throwing instead
+ * Unclaimed boot mode (#2427): when no keystore is present, this returns without throwing instead
  * of crashing boot — the app serves the "not claimed yet" page
  * (`middleware.ts`) until an operator pastes a code at `/claim`. Any *real*
- * failure (kernel refused a code that was actually provided, network error,
+ * failure (kernel refused the bootstrap key, network error,
  * …) still throws — a misconfigured deploy should fail loud, not run
  * silently unsigned.
  */
 export async function bootstrapSigningIdentity(): Promise<void> {
-  if (!hasClaimMaterial()) {
+  if (!hasBootstrapKeystore()) {
     return;
   }
-  writeSigningIdentity(await loadAppSigningKey());
+  // Explicitly disable the SDK's env claim fallback, including if the
+  // keystore disappears between the check above and the SDK's own read.
+  writeSigningIdentity(await loadAppSigningKey({ claimCode: '' }));
 }
 
 /** Returns the signing identity bootstrapped by `bootstrapSigningIdentity()` or `claimWithCode()`. */
@@ -127,11 +123,10 @@ export class AppDidMismatchError extends Error {
 
 /**
  * Redeems a one-time claim code submitted through the operator `/claim`
- * page (`app/api/claim/route.ts`) — the browser-paste path #2427 adds
- * alongside the existing `IMAJIN_APP_CLAIM_CODE` env-var path. Delegates to
+ * page (`app/api/claim/route.ts`) — the only claim path. Delegates to
  * the same `@ima-jin/auth-client`'s `loadAppSigningKey()` first-boot
  * exchange, so the bootstrap keypair is persisted to the same `0600`
- * keystore either way. Hot-swaps this process's in-memory signing identity
+ * keystore. Hot-swaps this process's in-memory signing identity
  * immediately — no restart required, though a restart also works (it just
  * re-reads the now-present keystore).
  *

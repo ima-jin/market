@@ -153,7 +153,7 @@ user, never **from** them. **Moat = legitimacy, not lock-in.**
 - **Env:** all service URLs come from env vars (`.env.example` is the contract) — **no hard-coded URLs**.
 - **No secrets in the repo.** The session secret lives in `.env`, never committed. This app's own signing key is
   never put in `.env` at all — it's fetched at boot via `@ima-jin/auth-client`'s `loadAppSigningKey()` (a one-time
-  claim code on first boot, a local `0600` bootstrap keystore on every later boot). See `docs/REGISTRATION.md`.
+  claim code submitted only through the browser's claim page, a local `0600` bootstrap keystore on every later boot). See `docs/REGISTRATION.md`.
 
 ---
 

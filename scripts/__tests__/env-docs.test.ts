@@ -11,6 +11,8 @@ import { ENV_VAR_NAMES, ENV_VARS, validateEnv } from '../lib/env-manifest.mjs';
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const read = (relative: string) => readFileSync(join(ROOT, relative), 'utf8');
 const CHECK_ENV = join(ROOT, 'scripts/check-env.mjs');
+// The installed SDK still supports this fallback; market must never expose it.
+const RETIRED_CLAIM_ENV = 'IMAJIN_APP_CLAIM_CODE';
 
 function childEnv(): NodeJS.ProcessEnv {
   return { PATH: process.env.PATH ?? '' } as unknown as NodeJS.ProcessEnv;
@@ -73,11 +75,24 @@ describe('env contract coverage', () => {
       const dist = join(base, pkg, 'dist');
       for (const file of walk(dist)) {
         for (const name of envNamesIn(readFileSync(file, 'utf8'))) {
+          if (pkg === 'auth-client' && name === RETIRED_CLAIM_ENV) {
+            expect(manifest.has(name)).toBe(false);
+            continue;
+          }
           if (!manifest.has(name)) undocumented.push(`${name} (@ima-jin/${pkg})`);
         }
       }
     }
     expect([...new Set(undocumented)]).toEqual([]);
+  });
+
+  it('keeps IMAJIN_APP_CLAIM_CODE absent from every tracked non-test file', () => {
+    const result = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    const files = result.stdout.split('\0').filter((file) => file && !file.includes('__tests__/'));
+    for (const file of files) {
+      expect(read(file), file).not.toContain(RETIRED_CLAIM_ENV);
+    }
   });
 
   it('lists every variable in .env.example and docs/ENVIRONMENTS.md', () => {
@@ -117,7 +132,7 @@ describe('env contract coverage', () => {
   });
 });
 
-const GOOD_SECRET = 'a'.repeat(64);
+const GOOD_SECRET = 'FAKE_TEST_ONLY_NOT_A_SECRET'.repeat(3);
 
 function filled(file: string, overrides: Record<string, string> = {}) {
   return {
@@ -200,13 +215,17 @@ describe('validateEnv', () => {
     expect(short).not.toContain('tooshortsecretvalue');
   });
 
-  it('warns (without failing) about first-boot, port and logging leftovers', () => {
+  it('ignores IMAJIN_APP_CLAIM_CODE in env validation without warnings or value disclosure', () => {
+    expect(validateEnv(validProd({ [RETIRED_CLAIM_ENV]: 'FAKE_ENV_CLAIM_CODE_IGNORED' }), 'prod'))
+      .toEqual({ errors: [], warnings: [] });
+  });
+
+  it('warns (without failing) about port and logging leftovers', () => {
     const { errors, warnings } = validateEnv(
-      validProd({ IMAJIN_APP_CLAIM_CODE: 'once', PORT: '9999', LOG_DB_TRANSPORT: 'true' }),
+      validProd({ PORT: '9999', LOG_DB_TRANSPORT: 'true' }),
       'prod',
     );
     expect(errors).toEqual([]);
-    expect(warnings.join('\n')).toMatch(/IMAJIN_APP_CLAIM_CODE is set/);
     expect(warnings.join('\n')).toMatch(/PORT is set/);
     expect(warnings.join('\n')).toMatch(/LOG_DB_TRANSPORT=true/);
   });

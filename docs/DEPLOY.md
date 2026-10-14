@@ -47,7 +47,7 @@ win. Note that step 2 swaps in the new ref's `deploy.sh`, so a change to the scr
 7. **restart** — `pm2 startOrReload ecosystem.config.cjs --only <prod|dev>-market --update-env`, then `pm2 save`.
 8. **health** — polls `/market/api/health` for up to 60 s and requires `"status":"ok"`. A non-healthy result exits
    non-zero. (The endpoint proves the process booted — `instrumentation.ts` refuses to start without a valid
-   identity — but does not query the database.)
+   app DID — but does not query the database. An unclaimed app reports `claimed: false`.)
 
 ## First deploy of an environment (fresh checkout)
 
@@ -70,8 +70,8 @@ Use `~/dev/market` and `.env.dev.example` / `scripts/deploy.sh dev` for dev. Dep
   side (the operator's `/jin` approval card); this repo only redeems the resulting one-time code.
 - **Create the databases/roles** and put the connection strings in each `.env.local`. Prod/dev already contain the
   `market` schema; the baseline adopts it in place.
-- **Generate the secrets** (`SESSION_SECRET`, `WEBHOOK_SECRET`: `openssl rand -hex 32`, distinct per environment) and
-  configure the same `WEBHOOK_SECRET` on the kernel pay service's webhook for that environment.
+- **Provision other secrets through operator secret tooling** (`SESSION_SECRET`, `WEBHOOK_SECRET`, distinct per
+  environment). Never generate or copy them in a shell. Their vault integration is separate work, not a claim step.
 - **Caddy** — the route already exists; verify it against the [snippet below](#caddy).
 
 ### One-time cutover checklist
@@ -92,13 +92,13 @@ no key material is ever put in `.env.local` (the app refuses to boot if `IMAJIN_
 1. The operator approves the app on the kernel's `/jin` card (`apps.provision`) for that environment's kernel
    (`https://dev-jin.imajin.ai` / `https://jin.imajin.ai`). The kernel returns the app's `did:imajin:…` and a
    **one-time claim code**.
-2. Put the DID in `IMAJIN_APP_DID` and the claim code in `IMAJIN_APP_CLAIM_CODE` in that environment's `.env.local`,
-   then deploy. On first boot `instrumentation.ts` calls `loadAppSigningKey()`, which spends the code and writes a
-   `0600` bootstrap keystore at `IMAJIN_APP_KEYSTORE` (persistent, separate per environment).
-3. **Delete `IMAJIN_APP_CLAIM_CODE`** from `.env.local` once the app is healthy — it is spent. Every later boot
-   re-authenticates with the keystore alone. `check-env.mjs` warns while the code is still set.
+2. Configure the non-secret `IMAJIN_APP_DID` and persistent per-environment `IMAJIN_APP_KEYSTORE` path, then
+   deploy. Without a keystore the app boots unclaimed and links to `/market/claim`; health reports `claimed: false`.
+3. Open that environment's `/market/claim` in a browser, paste the code from `/jin`, and submit. The exchange
+   writes the `0600` bootstrap keystore and activates the app immediately — no env edit or restart.
+   Every later boot re-authenticates with the keystore alone, unchanged for already-claimed deployments.
 4. A lost keystore (disk wipe, fresh host) needs a fresh code: ask the operator to re-approve with
-   `reissueClaim: true`.
+   `reissueClaim: true`, then redeem it only through that environment's `/market/claim`.
 
 `check-env.mjs` fails while `IMAJIN_APP_DID` is still the `REPLACE_ME` placeholder, and no script in this repo prints
 the claim code or any key material.
@@ -202,9 +202,9 @@ rollback is only safe while migrations stay additive.
 - **`baseline` exits 1** — the message lists exactly what differs. Do not edit the script to force it; fix the schema
   (or tell the app owner the schema drifted), then re-run.
 - **`env check` fails** — each line names a variable; see [ENVIRONMENTS.md](./ENVIRONMENTS.md).
-- **Health never goes green on a first boot** — `pm2 logs <name>`: a used/rejected `IMAJIN_APP_CLAIM_CODE` or wrong
-  `IMAJIN_APP_DID` fails at `instrumentation.ts`. The dev and prod instances must each have their own DID, claim
-  code and keystore.
+- **Health is OK but `claimed: false`** — approve provisioning on `/jin`, then open `/market/claim` and submit the
+  code in the browser. A missing `IMAJIN_APP_DID` still fails boot; a rejected keystore fails authentication.
+  Dev and prod must each have their own DID and keystore. Never put a claim code in env.
 - **Login loops on dev only** — `IMAJIN_ENV=dev` is missing (wrong session cookie name).
 - **`/dashboard` redirects to the prod kernel from dev** — `NEXT_PUBLIC_SERVICE_PREFIX=dev-` was not set at build
   time; set it and redeploy.

@@ -53,8 +53,8 @@
     "status": "required",
     "phase": "runtime",
     "summary": "Shared secret the kernel presents on payment webhooks (POST /api/webhook) as `Authorization: Bearer <WEBHOOK_SECRET>` — the only accepted scheme; the legacy x-webhook-secret header and body secret get 401. The webhook rejects every request while it is unset. 32+ random bytes; set the same value as the kernel's MARKET_WEBHOOK_SECRET. Never the dev value on prod.",
-    "dev": "(32+ random bytes — openssl rand -hex 32)",
-    "prod": "(32+ random bytes — openssl rand -hex 32)",
+    "dev": "(operator secret tooling)",
+    "prod": "(operator secret tooling)",
     "secret": true
   },
   {
@@ -62,8 +62,8 @@
     "status": "required",
     "phase": "runtime",
     "summary": "Signs this app's session cookie (HS256, @ima-jin/auth-client). 32+ random bytes; distinct per environment.",
-    "dev": "(32+ random bytes — openssl rand -hex 32)",
-    "prod": "(32+ random bytes — openssl rand -hex 32)",
+    "dev": "(operator secret tooling)",
+    "prod": "(operator secret tooling)",
     "secret": true
   },
   {
@@ -145,15 +145,6 @@
     "summary": "Selects the kernel session cookie name in @ima-jin/config: `dev` -> imajin_session_dev, anything else -> imajin_session. MUST be `dev` on the dev instance (a production build is NODE_ENV=production, which does not imply dev); leave unset on prod.",
     "dev": "dev",
     "prod": "(unset)"
-  },
-  {
-    "name": "IMAJIN_APP_CLAIM_CODE",
-    "status": "first-boot",
-    "phase": "runtime",
-    "summary": "One-time code from the kernel operator's /jin approval card. Needed only on the very first boot (no keystore yet) or a lost-keystore rebind; delete it after the first successful boot.",
-    "dev": "(only on first boot)",
-    "prod": "(only on first boot)",
-    "secret": true
   },
   {
     "name": "IMAJIN_APP_KEYSTORE",

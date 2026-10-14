@@ -24,7 +24,6 @@ export const SCHEMA = 'market';
 /**
  * status:
  *   required         must be set in the env file for a deployed instance
- *   first-boot       required only on the very first boot, then removed
  *   optional         read, has a safe default when unset
  *   forbidden        must NOT be set (the app refuses to boot if it is)
  *   runtime-set      injected by Next.js / pm2 — not set in the env file
@@ -79,7 +78,7 @@ function checkKernelUrl(name, value, target, errors) {
 function checkSecret(name, value, errors) {
   if (value === '') return;
   if (value.includes('REPLACE_ME') || value.includes('CHANGE_ME')) {
-    errors.push(`${name} is still a placeholder — generate a real value (openssl rand -hex 32).`);
+    errors.push(`${name} is still a placeholder — provision it through the operator's secret tooling.`);
   } else if (value.length < MIN_SECRET_LENGTH) {
     errors.push(`${name} is shorter than ${MIN_SECRET_LENGTH} characters.`);
   }
@@ -166,9 +165,6 @@ function collectWarnings(get, target) {
   const port = get('PORT');
   if (port !== '' && port !== String(TARGETS[target].port)) {
     warnings.push(`PORT is set in the env file but ${TARGETS[target].name} runs on ${TARGETS[target].port}; the pm2 entry's value wins.`);
-  }
-  if (get('IMAJIN_APP_CLAIM_CODE') !== '') {
-    warnings.push('IMAJIN_APP_CLAIM_CODE is set — it is needed on the first boot only; remove it once the app has booted once.');
   }
   for (const name of ['ENABLE_APP_LOG', 'LOG_DB_TRANSPORT', 'ENABLE_REQUEST_LOG']) {
     if (get(name) === 'true') {
