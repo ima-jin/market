@@ -215,3 +215,4 @@ prefix instead of at `/`. `next.config.js` reads it for Next's own `basePath` (c
 Every Imajin app before the external integrators was first-party (same repo, same server, privileged access). Apps
 built from this template are the **external-integrator** test: if this app can do everything it needs through app-auth
 and the public API alone, the federated-app boundary is real.
+
