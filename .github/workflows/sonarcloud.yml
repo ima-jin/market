@@ -7,13 +7,18 @@ name: SonarCloud
 # for why that split exists there but not here: a Sonar scan of a handful of
 # markdown/config files is cheap and still worth gating on.
 #
-# Requires two manual, one-time steps from a repo admin before this goes
+# Requires three manual, one-time steps from a repo admin before this goes
 # green (tracked in the PR that introduced this file):
 #   1. Create the Sonar project on sonarcloud.io for this repo
 #      (sonar.organization/sonar.projectKey in sonar-project.properties).
 #   2. Add SONAR_TOKEN as a repo or org secret.
-# Until both exist, this check fails on purpose. A green check that scanned
-# nothing is a worse signal than a red one that says why.
+#   3. Disable Automatic Analysis in project Administration > Analysis Method.
+# The analysis-mode job prevents competing scanners while that setting is
+# enabled. CI (including LCOV coverage) is the preferred mode.
+# Missing CI credentials fail on purpose when CI mode is selected. Automatic
+# mode is an explicit skip, not proof of a successful coverage-consuming scan.
+# Changes to this workflow_run workflow take effect from the default branch;
+# an open PR can still trigger the old scanner until this change is merged.
 #
 # Fork-PR fix (ima-jin/dykil#4): a plain `pull_request` trigger never sees
 # repo/org secrets when the PR comes from a fork, so SONAR_TOKEN would be
@@ -48,8 +53,41 @@ permissions:
   actions: read # to download the sonar-payload artifact from the triggering CI run
 
 jobs:
+  analysis-mode:
+    if: >
+      github.event_name == 'push' ||
+      (github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.conclusion == 'success')
+    name: Sonar analysis mode
+    runs-on: ubuntu-latest
+    env:
+      SONAR_HOST_URL: https://sonarcloud.io
+      SONAR_PROJECT_KEY: ima-jin_market2
+    outputs:
+      automatic: ${{ steps.mode.outputs.automatic }}
+    steps:
+      - name: Read project analysis mode
+        id: mode
+        # This public project's setting is readable without sending a secret.
+        # Network/API errors or an absent/non-boolean setting fail closed:
+        # never silently treat an unknown mode as a successful analysis.
+        run: |
+          settings=$(curl --fail --silent --show-error --retry 3 --get \
+            "$SONAR_HOST_URL/api/settings/values" \
+            --data-urlencode "component=$SONAR_PROJECT_KEY" \
+            --data-urlencode "keys=sonar.autoscan.enabled")
+          automatic=$(jq -er '
+            [.settings[] | select(.key == "sonar.autoscan.enabled") | .value]
+            | select(length == 1) | .[0]
+            | select(. == "true" or . == "false")
+          ' <<< "$settings")
+          echo "automatic=$automatic" >> "$GITHUB_OUTPUT"
+          if [ "$automatic" = "true" ]; then
+            echo "::notice::Automatic Analysis is enabled; skipping the duplicate CI scanner. Disable it in Sonar project Administration > Analysis Method to use CI coverage."
+          fi
   sonarcloud-push:
-    if: github.event_name == 'push'
+    needs: analysis-mode
+    if: github.event_name == 'push' && needs.analysis-mode.outputs.automatic == 'false'
     name: SonarCloud
     runs-on: ubuntu-latest
     env:
@@ -117,13 +155,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   sonarcloud-pr:
+    needs: analysis-mode
     # Only for the CI workflow's own `pull_request` runs, and only once it
     # succeeded — a failing build/test means an incomplete picture (same
     # reasoning as the push job's coverage step above).
     if: >
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion == 'success' &&
+      needs.analysis-mode.outputs.automatic == 'false'
     name: SonarCloud
     runs-on: ubuntu-latest
     env:
@@ -172,10 +212,12 @@ jobs:
               exit 1
             fi
           done
+          headSha=$(jq -er '.headSha | select(test("^[0-9a-f]{40}$"))' "$meta")
           {
             echo "number=$number"
             echo "headRef=$headRef"
             echo "baseRef=$baseRef"
+            echo "headSha=$headSha"
           } >> "$GITHUB_OUTPUT"
 
       - name: SonarCloud Scan
@@ -188,3 +230,4 @@ jobs:
             -Dsonar.pullrequest.key=${{ steps.pr.outputs.number }}
             -Dsonar.pullrequest.branch=${{ steps.pr.outputs.headRef }}
             -Dsonar.pullrequest.base=${{ steps.pr.outputs.baseRef }}
+            -Dsonar.scm.revision=${{ steps.pr.outputs.headSha }}
