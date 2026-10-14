@@ -42,8 +42,6 @@ export const ENV_VARS = JSON.parse(readFileSync(new URL('./env-manifest.json', i
 
 export const ENV_VAR_NAMES = ENV_VARS.map((v) => v.name);
 
-const MIN_SECRET_LENGTH = 32;
-
 function parseUrl(value) {
   try {
     return new URL(value);
@@ -72,15 +70,6 @@ function checkKernelUrl(name, value, target, errors) {
   }
   if (target === 'dev' && !isDevHost) {
     errors.push(`${name} points at a non-dev host (${url.hostname}) in a dev env file — dev must never talk to the prod kernel.`);
-  }
-}
-
-function checkSecret(name, value, errors) {
-  if (value === '') return;
-  if (value.includes('REPLACE_ME') || value.includes('CHANGE_ME')) {
-    errors.push(`${name} is still a placeholder — provision it through the operator's secret tooling.`);
-  } else if (value.length < MIN_SECRET_LENGTH) {
-    errors.push(`${name} is shorter than ${MIN_SECRET_LENGTH} characters.`);
   }
 }
 
@@ -193,7 +182,6 @@ export function validateEnv(env, target) {
   checkPresence(get, errors);
   checkFixedValues(get, errors);
   checkKernelUrls(get, target, errors);
-  checkSecret('SESSION_SECRET', get('SESSION_SECRET'), errors);
   checkIdentity(get, errors);
   checkEnvironmentSplit(get, target, errors);
 

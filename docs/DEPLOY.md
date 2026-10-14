@@ -70,8 +70,10 @@ Use `~/dev/market` and `.env.dev.example` / `scripts/deploy.sh dev` for dev. Dep
   side (the operator's `/jin` approval card); this repo only redeems the resulting one-time code.
 - **Create the databases/roles** and put the connection strings in each `.env.local`. Prod/dev already contain the
   `market` schema; the baseline adopts it in place.
-- **Provision other secrets through operator secret tooling** (`SESSION_SECRET`, distinct per
-  environment). Never generate or copy them in a shell. Their vault integration is separate work, not a claim step.
+- **Session signing is vault-only.** The kernel issues and seals the recipe in `imajin.app.json` on
+  provision/claim. For an existing app select **Sync manifest secrets** on `/jin` and countersign.
+  Rotate there, countersign, then restart through the operator tool; no secret env edit. Boot refuses
+  to enable sessions if the vault is unreachable or the declaration is unavailable.
 - **Caddy** — the route already exists; verify it against the [snippet below](#caddy).
 
 ### One-time cutover checklist

@@ -98,7 +98,7 @@ describe('env contract coverage', () => {
       const dist = join(base, pkg, 'dist');
       for (const file of walk(dist)) {
         for (const name of envNamesIn(readFileSync(file, 'utf8'))) {
-          if (pkg === 'auth-client' && name === RETIRED_CLAIM_ENV) {
+          if ((pkg === 'auth-client' && name === RETIRED_CLAIM_ENV) || name === 'SESSION_SECRET') {
             expect(manifest.has(name)).toBe(false);
             continue;
           }
@@ -170,7 +170,6 @@ function filled(file: string, overrides: Record<string, string> = {}) {
   return {
     ...parseEnv(read(file)),
     IMAJIN_APP_DID: 'did:imajin:abc123',
-    SESSION_SECRET: GOOD_SECRET,
     ...overrides,
   };
 }
@@ -181,8 +180,7 @@ describe('validateEnv', () => {
     ['prod', '.env.prod.example'],
   ] as const)('accepts the shipped %s example apart from the placeholders', (target, file) => {
     const { errors } = validateEnv(parseEnv(read(file)), target);
-    expect(errors).toHaveLength(2);
-    expect(errors.join('\n')).toMatch(/SESSION_SECRET is still a placeholder/);
+    expect(errors).toHaveLength(1);
     expect(errors.join('\n')).toMatch(/IMAJIN_APP_DID is still the REPLACE_ME placeholder/);
   });
 
@@ -237,12 +235,15 @@ describe('validateEnv', () => {
     expect(errors).toMatch(/must start with did:imajin:/);
   });
 
-  it('rejects placeholder and short secrets without echoing them', () => {
-    const placeholder = errorsOf(validProd({ SESSION_SECRET: 'REPLACE_ME' }), 'prod');
-    expect(placeholder).toMatch(/SESSION_SECRET is still a placeholder/);
-    const short = errorsOf(validProd({ SESSION_SECRET: 'FAKE_SHORT' }), 'prod');
-    expect(short).toMatch(/SESSION_SECRET is shorter than 32 characters/);
-    expect(short).not.toContain('FAKE_SHORT');
+  it('does not require or validate a stale session env value', () => {
+    expect(ENV_VAR_NAMES).not.toContain('SESSION_SECRET');
+    expect(validateEnv(validProd(), 'prod')).toEqual({ errors: [], warnings: [] });
+    expect(validateEnv(validProd({ SESSION_SECRET: 'FAKE_IGNORED' }), 'prod'))
+      .toEqual({ errors: [], warnings: [] });
+    for (const file of ['.env.example', '.env.dev.example', '.env.prod.example',
+      'README.md', 'docs/REGISTRATION.md', 'docs/DEPLOY.md', 'docs/ENVIRONMENTS.md']) {
+      expect(read(file), file).not.toContain('SESSION_SECRET');
+    }
   });
 
   it.each([
