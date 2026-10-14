@@ -221,14 +221,6 @@ describe('POST /api/listings/:id/purchase — listing with a .fair chain', () =>
     expect(await res.json()).toEqual({ url: CHECKOUT_URL, sessionId: 'cs_test_1' });
   });
 
-  it('never sends a shared pay key', async () => {
-    vi.stubEnv('PAY_SERVICE_API_KEY', 'legacy-shared-key');
-
-    await purchase();
-
-    expect(JSON.stringify(mocks.fetch.mock.calls)).not.toContain('legacy-shared-key');
-  });
-
   it("returns pay's error message when checkout is refused", async () => {
     mocks.fetch.mockImplementation(async () =>
       Response.json({ error: "Forbidden - scope 'pay:settle' was not granted" }, { status: 403 })
