@@ -43,9 +43,10 @@ function envNamesIn(source: string): string[] {
 describe('env contract coverage', () => {
   const manifest = new Set(ENV_VAR_NAMES);
 
-  it('pins the public auth SDK exactly to 0.8.18', () => {
+  it('pins both public auth SDK packages exactly to 0.8.18', () => {
     const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string> };
     expect(pkg.dependencies['@ima-jin/auth']).toBe('0.8.18');
+    expect(pkg.dependencies['@ima-jin/auth-client']).toBe('0.8.18');
   });
 
   it('has no shared callback credential or secret-generation instructions in operator contracts', () => {
