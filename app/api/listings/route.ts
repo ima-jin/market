@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { sql } from 'drizzle-orm';
 import { createLogger } from '@ima-jin/logger';
 import { db, listings } from '@/db';
-import { authenticate, authenticateOptional } from '@/lib/auth/authenticate';
+import { authenticate, authenticateOptional, authErrorResponse } from '@/lib/auth/authenticate';
 import { emitEvent } from '@/lib/kernel/events';
 import {
   MAX_IMAGES,
@@ -64,7 +64,7 @@ function validateCreateBody(body: {
 export async function POST(request: NextRequest) {
   const authResult = await authenticate(request);
   if ('error' in authResult) {
-    return errorResponse(authResult.error, authResult.status);
+    return authErrorResponse(authResult);
   }
 
   const did = authResult.auth.did;

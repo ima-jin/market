@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { createLogger } from '@ima-jin/logger';
 import { db, sellerSettings } from '@/db';
-import { authenticate } from '@/lib/auth/authenticate';
+import { authenticate, authErrorResponse } from '@/lib/auth/authenticate';
 import { errorResponse, jsonResponse } from '@/lib/utils';
 
 const log = createLogger('market');
@@ -14,7 +14,7 @@ const log = createLogger('market');
 export async function GET(request: NextRequest) {
   const authResult = await authenticate(request);
   if ('error' in authResult) {
-    return errorResponse(authResult.error, authResult.status);
+    return authErrorResponse(authResult);
   }
 
   const did = authResult.auth.did;
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const authResult = await authenticate(request);
   if ('error' in authResult) {
-    return errorResponse(authResult.error, authResult.status);
+    return authErrorResponse(authResult);
   }
 
   const did = authResult.auth.did;

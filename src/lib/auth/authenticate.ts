@@ -1,4 +1,6 @@
 import { requireSessionOrAppToken } from '@ima-jin/auth';
+import type { DelegationPolicyBody } from '@ima-jin/auth/delegation-policy';
+import { evaluateMarketDelegationPolicy } from '@/lib/delegation-policy';
 
 /**
  * This app's entire inbound-auth surface, deliberately funneled through one
@@ -19,10 +21,12 @@ export interface AuthenticatedCaller {
   scopes: string[];
   /** Which path authenticated this request — surfaced for logging/debugging only. */
   via: 'token' | 'cookie';
+  /** Verified owner delegation, never a replacement for the caller DID. */
+  actingFor?: string;
 }
 
 export type AuthenticateSuccess = { auth: AuthenticatedCaller };
-export type AuthenticateFailure = { error: string; status: number };
+export type AuthenticateFailure = { error: string; status: number; proposal?: DelegationPolicyBody };
 export type AuthenticateResult = AuthenticateSuccess | AuthenticateFailure;
 
 export interface AuthenticateOptions {
@@ -40,7 +44,15 @@ export async function authenticate(
   if ('error' in result) {
     return { error: result.error, status: result.status };
   }
+  const decision = evaluateMarketDelegationPolicy(request, { id: result.auth.did, actingFor: result.auth.actingFor });
+  if (!decision.allowed) {
+    return { error: decision.body.error, status: decision.status, proposal: decision.body };
+  }
   return { auth: result.auth };
+}
+/** Preserve the complete SDK proposal instead of reducing it to an error string. */
+export function authErrorResponse(result: AuthenticateFailure): Response {
+  return Response.json(result.proposal ?? { error: result.error }, { status: result.status });
 }
 
 /**

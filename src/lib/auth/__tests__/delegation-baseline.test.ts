@@ -25,7 +25,7 @@ describe('published SDK delegation identity baseline (#28)', () => {
         ? { sub: DELEGATE, aud: 'market', scopes: [] }
         : { did: DELEGATE, tier: 'hard' }))
       .mockResolvedValueOnce(Response.json({ allowed: true }));
-    const credentials = via === 'token'
+    const credentials: Record<string, string> = via === 'token'
       ? { Authorization: 'Bearer test-token' }
       : { Cookie: `${SESSION_COOKIE_NAME}=test-session` };
 
@@ -39,6 +39,24 @@ describe('published SDK delegation identity baseline (#28)', () => {
     }));
     // All existing market ownership checks consume auth.did, not actingFor.
     expect('auth' in result && result.auth.did === OWNER).toBe(false);
+  });
+
+  it.each(['token', 'cookie'] as const)('%s returns a countersign proposal after real SDK grant verification', async (via) => {
+    fetchMock
+      .mockResolvedValueOnce(Response.json(via === 'token'
+        ? { sub: DELEGATE, aud: 'market', scopes: [] }
+        : { did: DELEGATE, tier: 'hard' }))
+      .mockResolvedValueOnce(Response.json({ allowed: true }));
+    const headers = new Headers({ 'X-Acting-For': OWNER });
+    if (via === 'token') headers.set('Authorization', 'Bearer test-token');
+    else headers.set('Cookie', `${SESSION_COOKIE_NAME}=test-session`);
+
+    expect(await authenticate(new Request('https://market.test/api/listings/lst_1', {
+      method: 'DELETE', headers,
+    }))).toMatchObject({
+      status: 403,
+      proposal: { code: 'AGENT_APPROVAL_REQUIRED', ownerDid: OWNER, delegateDid: DELEGATE, action: 'delete', class: 'irreversible', resourceId: 'lst_1' },
+    });
   });
 
   it('rejects an unverified owner header instead of surfacing it', async () => {
