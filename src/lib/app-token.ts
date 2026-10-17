@@ -14,74 +14,45 @@
  * written to disk, env or a log line — and the token is cached until 80% of
  * its TTL.
  *
- * `@ima-jin/auth-client` ships no helper for this mint (its `requestAppToken`
- * is the session-scoped user flow); the Ed25519 signature itself comes from the
- * SDK's `signBootstrapPayload`, no crypto is implemented here.
+ * The published `@ima-jin/auth-client`'s `requestAppServiceToken` performs the
+ * proof-of-possession mint. Its default audience is `imajin:apps`, also accepted
+ * by the kernel's `/api/events`; no user session or delegated token is used.
  *
  * Fails loud: any problem (app unclaimed, kernel unreachable, rejected
  * signature) throws a value-free error; callers decide how to degrade.
  */
-import { randomBytes } from 'node:crypto';
-import { signBootstrapPayload } from '@ima-jin/auth-client';
+import { requestAppServiceToken } from '@ima-jin/auth-client';
 import { kernelUrl } from '@/lib/env';
 import { getSigningIdentity } from '@/lib/signing-identity';
 
 /** Refresh at 80% of the kernel-reported TTL. */
 const REFRESH_RATIO = 0.8;
-/** The kernel mints 10-minute tokens; used only if the response omits `expiresIn`. */
-const DEFAULT_TTL_SECONDS = 600;
-/** The kernel requires a nonce of at least 16 bytes of entropy (32 hex chars). */
-const NONCE_BYTES = 16;
 
 interface CachedToken {
   token: string;
   refreshAtMs: number;
 }
 
-interface MintResponse {
-  token?: unknown;
-  expiresIn?: unknown;
-  error?: unknown;
-}
-
 let cachedToken: CachedToken | null = null;
 let inflightMint: Promise<string> | null = null;
 
-function mintUrl(): string {
+function mintBaseUrl(): string {
   const base = kernelUrl();
   if (!base) throw new Error('app-token: IMAJIN_KERNEL_URL is not set');
-  return `${base}/auth/api/apps/token/service`;
+  return base;
 }
 
 async function mintServiceToken(): Promise<string> {
+  const base = mintBaseUrl();
   const { appDid, privateKey } = getSigningIdentity();
-  const nonce = randomBytes(NONCE_BYTES).toString('hex');
-  const timestamp = new Date().toISOString();
-  const signature = signBootstrapPayload(`${appDid}:${nonce}:${timestamp}`, privateKey);
-
-  let res: Response;
-  try {
-    res = await fetch(mintUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ appDid, nonce, timestamp, signature }),
-    });
-  } catch (err) {
-    throw new Error(`app-token: could not reach the auth service (${err instanceof Error ? err.message : String(err)})`);
-  }
-
-  const body = (await res.json().catch(() => null)) as MintResponse | null;
-  if (!res.ok) {
-    const reason = typeof body?.error === 'string' ? body.error : `status ${res.status}`;
-    throw new Error(`app-token: service token mint failed (${reason})`);
-  }
-  if (typeof body?.token !== 'string' || body.token.length === 0) {
-    throw new TypeError('app-token: service token mint response was malformed');
-  }
-
-  const ttlSeconds = typeof body.expiresIn === 'number' && body.expiresIn > 0 ? body.expiresIn : DEFAULT_TTL_SECONDS;
-  cachedToken = { token: body.token, refreshAtMs: Date.now() + ttlSeconds * REFRESH_RATIO * 1000 };
-  return body.token;
+  const minted = await requestAppServiceToken({
+    kernelUrl: base,
+    appDid,
+    privateKey,
+    fetchOptions: { signal: AbortSignal.timeout(5000) },
+  });
+  cachedToken = { token: minted.token, refreshAtMs: Date.now() + minted.expiresIn * REFRESH_RATIO * 1000 };
+  return minted.token;
 }
 
 /** The app-service token to send as `Authorization: Bearer`. Mints on first use and refreshes before expiry. */
@@ -94,7 +65,7 @@ export async function getAppServiceToken(): Promise<string> {
   return inflightMint;
 }
 
-/** Drop the cached token. Used by tests. */
+/** Drop the cached token after a 401; the next call mints again. Also used by tests. */
 export function resetAppServiceTokenCache(): void {
   cachedToken = null;
   inflightMint = null;

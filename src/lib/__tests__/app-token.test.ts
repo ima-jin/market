@@ -3,13 +3,12 @@
  * token (proof of possession of its app key) for pay's checkout and settle calls.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { signBootstrapPayload } from '@ima-jin/auth-client';
 
 const mocks = vi.hoisted(() => ({
   getSigningIdentity: vi.fn(),
-  signBootstrapPayload: vi.fn(),
 }));
 
-vi.mock('@ima-jin/auth-client', () => ({ signBootstrapPayload: mocks.signBootstrapPayload }));
 vi.mock('@/lib/signing-identity', () => ({ getSigningIdentity: mocks.getSigningIdentity }));
 
 import { getAppServiceToken, resetAppServiceTokenCache } from '../app-token';
@@ -17,8 +16,8 @@ import { getAppServiceToken, resetAppServiceTokenCache } from '../app-token';
 const APP_DID = 'did:imajin:market-app';
 const KERNEL_URL = 'https://kernel.test';
 const TOKEN_URL = `${KERNEL_URL}/auth/api/apps/token/service`;
-const SIGNATURE = 'sig-hex';
-const MINT_FAILED = 'app-token: service token mint failed';
+const TEST_KEY = '11'.repeat(32);
+const MINT_FAILED = 'requestAppServiceToken: token mint failed';
 
 const fetchMock = vi.fn();
 
@@ -37,8 +36,7 @@ describe('getAppServiceToken', () => {
     vi.setSystemTime(new Date('2026-10-08T12:00:00.000Z'));
     vi.stubGlobal('fetch', fetchMock);
     vi.stubEnv('IMAJIN_KERNEL_URL', KERNEL_URL);
-    mocks.getSigningIdentity.mockReset().mockReturnValue({ appDid: APP_DID, privateKey: 'priv-hex', publicKey: 'pub-hex' });
-    mocks.signBootstrapPayload.mockReset().mockReturnValue(SIGNATURE);
+    mocks.getSigningIdentity.mockReset().mockReturnValue({ appDid: APP_DID, privateKey: TEST_KEY, publicKey: 'pub-hex' });
     fetchMock
       .mockReset()
       .mockImplementation(async () => mintResponse({ token: 'tok-1', expiresIn: 600, scopes: ['pay:settle'] }));
@@ -61,9 +59,10 @@ describe('getAppServiceToken', () => {
     expect(body.appDid).toBe(APP_DID);
     expect(body.nonce).toMatch(/^[0-9a-f]{32}$/);
     expect(body.timestamp).toBe('2026-10-08T12:00:00.000Z');
-    expect(body.signature).toBe(SIGNATURE);
     // The signature covers exactly the challenge the kernel reconstructs, signed with the app's own key.
-    expect(mocks.signBootstrapPayload).toHaveBeenCalledWith(`${APP_DID}:${body.nonce}:${body.timestamp}`, 'priv-hex');
+    expect(body.signature).toBe(signBootstrapPayload(`${APP_DID}:${body.nonce}:${body.timestamp}`, TEST_KEY));
+    expect(body).not.toHaveProperty('privateKey');
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
   });
 
   it('tolerates a trailing slash on IMAJIN_KERNEL_URL', async () => {
@@ -87,13 +86,9 @@ describe('getAppServiceToken', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('falls back to a 10-minute TTL when the response omits expiresIn', async () => {
+  it('rejects a response without the SDK-required TTL', async () => {
     fetchMock.mockImplementation(async () => mintResponse({ token: 'tok-1' }));
-    await getAppServiceToken();
-
-    vi.setSystemTime(new Date('2026-10-08T12:07:59.000Z'));
-    await getAppServiceToken();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(getAppServiceToken()).rejects.toThrow('token mint response was malformed');
   });
 
   it('coalesces concurrent callers onto one mint', async () => {
@@ -131,17 +126,17 @@ describe('getAppServiceToken', () => {
 
   it('rejects a malformed success response', async () => {
     fetchMock.mockImplementation(async () => mintResponse({ expiresIn: 600 }));
-    await expect(getAppServiceToken()).rejects.toThrow('mint response was malformed');
+    await expect(getAppServiceToken()).rejects.toThrow('token mint response was malformed');
   });
 
   it('wraps a network failure without leaking anything but the cause message', async () => {
     fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
-    await expect(getAppServiceToken()).rejects.toThrow('could not reach the auth service (connect ECONNREFUSED)');
+    await expect(getAppServiceToken()).rejects.toThrow('could not reach the kernel (Error: connect ECONNREFUSED)');
   });
 
   it('wraps a non-Error network failure', async () => {
     fetchMock.mockRejectedValueOnce('boom');
-    await expect(getAppServiceToken()).rejects.toThrow('could not reach the auth service (boom)');
+    await expect(getAppServiceToken()).rejects.toThrow('could not reach the kernel (boom)');
   });
 
   it('does not cache a failed mint', async () => {

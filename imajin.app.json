@@ -1,4 +1,9 @@
 {
+  "emittableEvents": [
+    "listing.created",
+    "listing.updated",
+    "listing.purchased"
+  ],
   "secrets": [
     { "name": "SESSION_SECRET", "kind": "random-32B" }
   ]

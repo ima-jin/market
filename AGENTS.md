@@ -211,10 +211,11 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
   `listings`, `disputes`, `seller_settings`.
 - **The real-world loop it instruments:** seller lists an item or service → buyer purchases (settled via the kernel) →
   disputes are resolved if the sale goes wrong.
-- **Domain events it emits (via kernel API):** `listing.create|created|update|purchase|purchased` — all through the
-  single seam `emitEvent()` (`src/lib/kernel/events.ts`), currently a logged no-op because the kernel has no public
-  app-token-gated event route yet (ima-jin/imajin-ai#2638). Until it lands, post-purchase reactors (attestation,
-  notify) do not fire for sales made here. Settlement does not depend on it: market settles its own purchases through
+- **Domain events it emits (via kernel API):** `listing.created`, `listing.updated`, `listing.purchased` — all through
+  `emitEvent()` (`src/lib/kernel/events.ts`) to `POST {IMAJIN_KERNEL_URL}/api/events` with market's own app-service
+  token. `imajin.app.json` declares the types; an operator must approve them per environment on `/jin`.
+  App-origin events trigger notify and audit only, never money or attestations. Publishing failures are error-logged
+  and non-fatal to user requests. Settlement does not depend on it: market settles its own purchases through
   pay's registered-app contract — it mints its own app-service token (`src/lib/app-token.ts`), checks out with a
   declared payee chain (`src/lib/settle.ts`), remembers the kernel payment per Stripe session
   (`src/lib/pending-checkout.ts`, in `listings.metadata`), and settles from `POST /api/webhook`, which verifies kernel Ed25519 signatures
@@ -226,7 +227,7 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
 - **Connectors it consumes:** none
 - **Scope guardrails specific to this app:** no tables outside the `market` schema; no `@imajin/*` workspace
   packages or kernel imports — only published `@ima-jin/*` packages from npmjs. Where a package the kernel app used
-  is not published (`@ima-jin/media` #2637, `@ima-jin/onboard` #2645, the bus #2638) the stand-in lives in one
-  small file (`src/lib/media.ts`, `src/components/OnboardGate.tsx`, `src/lib/kernel/events.ts`) with the gap issue
+  is not published (`@ima-jin/media` #2637, `@ima-jin/onboard` #2645) the stand-in lives in one
+  small file (`src/lib/media.ts`, `src/components/OnboardGate.tsx`) with the gap issue
   in its header, so it can be deleted when the package ships. Known kernel-side gaps that change behaviour:
   acting-as-scope (#2639) and identity tier for `trust_gated` purchases (#2640).

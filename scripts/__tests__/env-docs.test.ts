@@ -43,10 +43,10 @@ function envNamesIn(source: string): string[] {
 describe('env contract coverage', () => {
   const manifest = new Set(ENV_VAR_NAMES);
 
-  it('pins both public auth SDK packages exactly to 0.8.18', () => {
+  it('pins the public auth SDK and service-token-capable auth-client exactly', () => {
     const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string> };
     expect(pkg.dependencies['@ima-jin/auth']).toBe('0.8.18');
-    expect(pkg.dependencies['@ima-jin/auth-client']).toBe('0.8.18');
+    expect(pkg.dependencies['@ima-jin/auth-client']).toBe('0.8.22');
   });
 
   it('documents kernel-first and signed manifest Sync before upgrading each environment', () => {

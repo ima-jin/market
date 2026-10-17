@@ -14,7 +14,6 @@ import { authenticate, authenticateOptional } from '@/lib/auth/authenticate';
 import { appBaseUrl, payServiceUrl } from '@/lib/env';
 import { cardRailFailure } from '@/lib/card-rail';
 import { isHardIdentity } from '@/lib/kernel/client';
-import { emitEvent } from '@/lib/kernel/events';
 import { withBasePath } from '@/lib/base-path';
 import { recordPendingCheckout, type PayeeChainEntry } from '@/lib/pending-checkout';
 import { buildPayeeChain, type FairManifest } from '@/lib/settle';
@@ -192,12 +191,6 @@ export async function POST(request: NextRequest, props: RouteProps) {
       await rememberCheckout(listing.id, checkout, amountCents, payeeChain);
     }
 
-    void emitEvent('listing.purchase', {
-      issuer: listing.sellerDid,
-      subject: buyerDid || listing.sellerDid,
-      scope: 'market',
-      payload: { listingId: listing.id, sellerDid: listing.sellerDid, quantity },
-    });
 
     return jsonResponse({ url: checkout.url, sessionId: checkout.id });
   } catch (error) {

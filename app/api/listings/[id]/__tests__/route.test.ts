@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   requireSessionOrAppToken: vi.fn(),
   fetchNodeSelf: vi.fn(),
+  emitEvent: vi.fn(),
 }));
 
 vi.mock('@/db', async () => (await import('../../../../../test/helpers/db-mock')).dbModule);
 vi.mock('@ima-jin/auth', () => ({ requireSessionOrAppToken: mocks.requireSessionOrAppToken }));
 vi.mock('@/lib/kernel/client', () => ({ fetchNodeSelf: mocks.fetchNodeSelf }));
+vi.mock('@/lib/kernel/events', () => ({ emitEvent: mocks.emitEvent }));
 
 import { dbState } from '../../../../../test/helpers/db-mock';
 import { DELETE, GET, PATCH } from '../route';
@@ -157,6 +159,9 @@ describe('PATCH /api/listings/:id', () => {
     expect(set.id).toBeUndefined();
     expect(set.fairManifest).toBeUndefined();
     expect(mocks.fetchNodeSelf).not.toHaveBeenCalled();
+    expect(mocks.emitEvent).toHaveBeenCalledWith('listing.updated', {
+      issuer: SELLER, subject: SELLER, scope: 'market', payload: { listingId: 'lst_1' },
+    });
   });
 
   it('recalculates the .fair manifest when the price changes', async () => {

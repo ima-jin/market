@@ -61,7 +61,7 @@ async function applyListingPurchase(listingId: string, listing: typeof listings.
 }
 
 function publishListingPurchased(body: WebhookBody, listing: typeof listings.$inferSelect, listingId: string): void {
-  // listing.purchased → attestation + settle + notify reactors (kernel-side)
+  // App-origin listing.purchased → notify + audit only; settlement is separate below.
   void emitEvent('listing.purchased', {
     issuer: body.metadata?.buyerDid || '',
     subject: listing.sellerDid,

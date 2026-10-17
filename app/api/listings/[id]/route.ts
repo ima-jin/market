@@ -111,7 +111,7 @@ export async function PATCH(request: NextRequest, props: RouteProps) {
 
     const [updated] = await db.update(listings).set(updates).where(eq(listings.id, params.id)).returning();
 
-    void emitEvent('listing.update', {
+    void emitEvent('listing.updated', {
       issuer: did,
       subject: did,
       scope: 'market',
