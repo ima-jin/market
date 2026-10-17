@@ -189,7 +189,7 @@ describe('POST /api/listings/:id/purchase — listing with a .fair chain', () =>
     const res = await purchase();
 
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: 'Payment service unavailable' });
+    expect(await res.json()).toEqual({ error: 'Payment service unavailable. Please try again later.' });
     expect(mocks.fetch).not.toHaveBeenCalled();
     expect(mocks.recordPendingCheckout).not.toHaveBeenCalled();
   });
@@ -232,22 +232,61 @@ describe('POST /api/listings/:id/purchase — listing with a .fair chain', () =>
     expect(await res.json()).toEqual({ error: "Forbidden - scope 'pay:settle' was not granted" });
     expect(mocks.recordPendingCheckout).not.toHaveBeenCalled();
   });
+
 });
 
 describe('POST /api/listings/:id/purchase — listing without a .fair chain', () => {
-  it('checks out plainly: no token, no payee manifest, nothing recorded', async () => {
+  const manifests = [
+    { name: 'no manifest', fairManifest: null },
+    { name: 'distributions only', fairManifest: { version: '1.0', distributions: [{ did: SELLER, share: 1 }] } },
+    { name: 'empty chain', fairManifest: { version: '1.0', chain: [] } },
+  ];
+
+  it.each(manifests)('authenticates checkout with $name, without a payee manifest or settlement record', async ({ fairManifest }) => {
     dbState.reset();
-    dbState.queue([listingRow({ fairManifest: null })]);
+    dbState.queue([listingRow({ fairManifest })]);
+    anonymous();
 
     const res = await purchase();
 
     expect(res.status).toBe(200);
-    expect(mocks.getAppServiceToken).not.toHaveBeenCalled();
-    const { headers, body } = checkoutRequest();
-    expect(headers).not.toHaveProperty('Authorization');
+    expect(await res.json()).toEqual({ url: CHECKOUT_URL, sessionId: 'cs_test_1' });
+    expect(mocks.getAppServiceToken).toHaveBeenCalledTimes(1);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    const { url, headers, body } = checkoutRequest();
+    expect(url).toBe(PAY_CHECKOUT);
+    expect(headers).toMatchObject({ 'Content-Type': 'application/json', Authorization: 'Bearer app-token-1' });
+    expect(body.metadata.sellerDid).toBe(SELLER);
+    expect(body.metadata).not.toHaveProperty('buyerDid');
     expect(body).not.toHaveProperty('payeeManifest');
-    // Falls back to the default platform manifest, as before.
-    expect(body.fairManifest.type).toBe('market:purchase');
+    expect(body.fairManifest).toEqual(fairManifest ?? {
+      version: '1.0',
+      type: 'market:purchase',
+      distributions: [
+        { did: SELLER, share: 0.99, role: 'seller' },
+        { did: 'did:imajin:platform', share: 0.01, role: 'platform' },
+      ],
+    });
     expect(mocks.recordPendingCheckout).not.toHaveBeenCalled();
+  });
+
+  it.each(manifests)('fails closed with a retryable 503 when minting fails with $name', async ({ fairManifest }) => {
+    dbState.reset();
+    dbState.queue([listingRow({ fairManifest })]);
+    mocks.getAppServiceToken.mockRejectedValueOnce(new Error('app-token: mint unavailable'));
+
+    const res = await purchase();
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'Payment service unavailable. Please try again later.' });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.recordPendingCheckout).not.toHaveBeenCalled();
+
+    // A later buyer retry can mint successfully; there is no unauthenticated fallback.
+    dbState.queue([listingRow({ fairManifest })]);
+    expect((await purchase()).status).toBe(200);
+    expect(mocks.getAppServiceToken).toHaveBeenCalledTimes(2);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(checkoutRequest().headers.Authorization).toBe('Bearer app-token-1');
   });
 });

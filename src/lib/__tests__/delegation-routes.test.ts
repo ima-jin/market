@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   requireSessionOrAppToken: vi.fn(),
   fetchNodeSelf: vi.fn(),
   isHardIdentity: vi.fn(),
+  getAppServiceToken: vi.fn(),
   emitEvent: vi.fn(),
   fetch: vi.fn(),
 }));
@@ -13,6 +14,7 @@ vi.mock('@/db', async () => (await import('../../../test/helpers/db-mock')).dbMo
 vi.mock('@ima-jin/auth', () => ({ requireSessionOrAppToken: mocks.requireSessionOrAppToken }));
 vi.mock('@/lib/kernel/client', () => ({ fetchNodeSelf: mocks.fetchNodeSelf, isHardIdentity: mocks.isHardIdentity }));
 vi.mock('@/lib/kernel/events', () => ({ emitEvent: mocks.emitEvent }));
+vi.mock('@/lib/app-token', () => ({ getAppServiceToken: mocks.getAppServiceToken }));
 
 import { dbState } from '../../../test/helpers/db-mock';
 import { POST as create } from '../../../app/api/listings/route';
@@ -52,6 +54,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', mocks.fetch);
   mocks.fetchNodeSelf.mockResolvedValue(null);
   mocks.isHardIdentity.mockResolvedValue(true);
+  mocks.getAppServiceToken.mockResolvedValue('market-service-token');
   mocks.fetch.mockResolvedValue(Response.json({ url: 'https://checkout.test/s', id: 'cs_1' }));
 });
 
@@ -101,6 +104,7 @@ describe.each(['token', 'cookie'] as const)('%s route delegation', (via) => {
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
     const [url, init] = mocks.fetch.mock.calls[0];
     expect(url).toBe('https://pay.test/api/checkout');
+    expect(init.headers.Authorization).toBe('Bearer market-service-token');
     expect(JSON.parse(init.body).metadata.buyerDid).toBe(DELEGATE);
     expect(dbState.argsOf('set')).toHaveLength(0);
     expect(mocks.emitEvent).not.toHaveBeenCalled();
