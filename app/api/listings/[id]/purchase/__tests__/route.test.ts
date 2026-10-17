@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   requireSessionOrAppToken: vi.fn(),
   isHardIdentity: vi.fn(),
+  getAppServiceToken: vi.fn(),
   fetch: vi.fn(),
 }));
 
 vi.mock('@/db', async () => (await import('../../../../../../test/helpers/db-mock')).dbModule);
 vi.mock('@ima-jin/auth', () => ({ requireSessionOrAppToken: mocks.requireSessionOrAppToken }));
 vi.mock('@/lib/kernel/client', () => ({ isHardIdentity: mocks.isHardIdentity }));
+vi.mock('@/lib/app-token', () => ({ getAppServiceToken: mocks.getAppServiceToken }));
 
 import { dbState } from '../../../../../../test/helpers/db-mock';
 import { POST } from '../route';
@@ -24,7 +26,7 @@ const LISTING = {
   currency: 'CAD',
   status: 'active',
   sellerTier: 'public_onplatform',
-  // No `chain`: a chain-less listing checks out plainly (the chain/app-token flow is in settle.test.ts).
+  // No `chain`: checkout still authenticates as market (chain details are in settle.test.ts).
   fairManifest: { version: '1.0', distributions: [{ did: 'did:imajin:seller', share: 1 }] },
 };
 
@@ -61,6 +63,7 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_BASE_PATH', '');
   vi.stubEnv('PAY_SERVICE_URL', 'https://pay.test');
   mocks.isHardIdentity.mockResolvedValue(true);
+  mocks.getAppServiceToken.mockResolvedValue('market-service-token');
   anonymous();
   payOk();
 });
@@ -105,6 +108,7 @@ describe('POST /api/listings/:id/purchase', () => {
     const [url, init] = mocks.fetch.mock.calls[0];
     expect(url).toBe('https://pay.test/api/checkout');
     expect(init.method).toBe('POST');
+    expect(init.headers.Authorization).toBe('Bearer market-service-token');
     const body = payBody();
     expect(body).toMatchObject({
       items: [{ name: 'Chair', description: 'Oak', amount: 5000, quantity: 1 }],

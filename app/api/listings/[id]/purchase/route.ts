@@ -78,14 +78,12 @@ async function rememberCheckout(
 }
 
 /**
- * Headers for pay's checkout. A listing with a payee chain checks out with market's own
- * app-service token (#2740), which binds the payment to market's app DID so it can settle
- * later. Returns `null` when the token cannot be minted: without it the payment could never
- * settle, so the purchase is refused rather than taking money that cannot be paid out.
+ * Every seller checkout uses market's own app-service token, including listings without
+ * a payee chain (#31). Returns `null` when minting fails: never fall back to an
+ * unauthenticated checkout.
  */
-async function checkoutHeaders(payeeChain: PayeeChainEntry[] | null): Promise<Record<string, string> | null> {
+async function checkoutHeaders(): Promise<Record<string, string> | null> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (!payeeChain) return headers;
   try {
     headers.Authorization = `Bearer ${await getAppServiceToken()}`;
     return headers;
@@ -136,9 +134,9 @@ export async function POST(request: NextRequest, props: RouteProps) {
     // 5. Declare the payees (#2740). The chain is fixed here and re-posted verbatim at settle time.
     const amountCents = listing.price * quantity;
     const payeeChain = buildPayeeChain({ amountCents, fairManifest: fairManifest as FairManifest, buyerDid });
-    const headers = await checkoutHeaders(payeeChain);
+    const headers = await checkoutHeaders();
     if (!headers) {
-      return errorResponse('Payment service unavailable', 503);
+      return errorResponse('Payment service unavailable. Please try again later.', 503);
     }
 
     // 6. POST to pay service
