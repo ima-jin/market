@@ -1,13 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   requireSessionOrAppToken: vi.fn(),
   fetchNodeSelf: vi.fn(),
+  fetch: vi.fn(),
+  getAppServiceToken: vi.fn(),
+  resetAppServiceTokenCache: vi.fn(),
 }));
 
 vi.mock('@/db', async () => (await import('../../../../test/helpers/db-mock')).dbModule);
 vi.mock('@ima-jin/auth', () => ({ requireSessionOrAppToken: mocks.requireSessionOrAppToken }));
 vi.mock('@/lib/kernel/client', () => ({ fetchNodeSelf: mocks.fetchNodeSelf }));
+vi.mock('@/lib/app-token', () => ({
+  getAppServiceToken: mocks.getAppServiceToken,
+  resetAppServiceTokenCache: mocks.resetAppServiceTokenCache,
+}));
 
 import { dbState, renderSql } from '../../../../test/helpers/db-mock';
 import { GET, POST } from '../route';
@@ -42,11 +49,36 @@ beforeEach(() => {
   dbState.reset();
   vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://market.imajin.ai');
   vi.stubEnv('NEXT_PUBLIC_MEDIA_URL', 'https://media.test');
+  vi.stubEnv('IMAJIN_KERNEL_URL', '');
   mocks.fetchNodeSelf.mockResolvedValue(null);
   signedIn();
 });
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
 describe('POST /api/listings', () => {
+  it.each([201, 401, 403, 429])('preserves the create response when kernel event delivery returns %s', async (status) => {
+    vi.stubEnv('IMAJIN_KERNEL_URL', 'https://kernel.test');
+    vi.stubEnv('IMAJIN_APP_DID', 'did:imajin:market-app');
+    vi.stubGlobal('fetch', mocks.fetch);
+    mocks.getAppServiceToken.mockResolvedValue('test-service-token');
+    mocks.fetch.mockResolvedValue(Response.json({ error: 'event_type_not_approved' }, { status }));
+    const listing = { id: 'lst_created', currency: 'CAD' };
+    dbState.queue([listing]);
+
+    const res = await post(VALID);
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual(listing);
+    await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(mocks.fetch.mock.calls[0][1].body)).toMatchObject({
+      type: 'listing.created', subject: SELLER,
+      payload: { context_id: listing.id, interestDids: [SELLER] },
+    });
+  });
   it('requires authentication and passes the auth failure through', async () => {
     anonymous();
 

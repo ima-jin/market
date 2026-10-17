@@ -125,12 +125,6 @@ export async function POST(request: NextRequest) {
       .returning();
 
     // Fire and forget — never block the response
-    void emitEvent('listing.create', {
-      issuer: did,
-      subject: did,
-      scope: 'market',
-      payload: { listingId: listing.id, title, price },
-    });
     void emitEvent('listing.created', {
       issuer: did,
       subject: did,

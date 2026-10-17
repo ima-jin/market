@@ -107,8 +107,37 @@ Ported from the kernel's `apps/market` (ima-jin/imajin-ai#1989, step 2 of 5):
 - **Kernel callbacks:** the kernel signs; `verifyKernelWebhook` verifies raw bytes, the app DID,
   freshness and nonce before processing. No shared callback credential is needed. See
   [`docs/DEPLOY.md`](./docs/DEPLOY.md#kernel-signed-payment-callbacks).
+- **Domain events:** `listing.created`, `listing.updated`, and `listing.purchased` are published through the
+  kernel's `POST /api/events` using market's own app-service token. See [Domain events](#domain-events).
 - **Known kernel gaps** (filed as `gap(kernel)` issues, all refs ima-jin/imajin-ai#1989): `@ima-jin/media` (#2637),
-  bus events (#2638), acting-as-scope (#2639), identity tier (#2640), `@ima-jin/onboard` (#2645).
+  acting-as-scope (#2639), identity tier (#2640), `@ima-jin/onboard` (#2645).
+
+## Domain events
+
+`src/lib/kernel/events.ts` publishes to `{IMAJIN_KERNEL_URL}/api/events`. The existing
+`IMAJIN_KERNEL_URL` must be the kernel base URL, without an `/auth`, `/pay`, or `/market` suffix.
+No new environment variable or shared service secret is needed. `IMAJIN_APP_DID` and the app's claimed
+signing identity must be available (see [Identity](#identity--minting-the-apps-did-browser-claim-flow)).
+The published `@ima-jin/auth-client` helper proves possession of that in-memory key at
+`POST /auth/api/apps/token/service`. Its default `imajin:apps` audience is accepted by the events endpoint;
+the cached token is refreshed at 80% of its TTL.
+
+The body is `{ type, subject, payload, correlationId? }`. The kernel sets the issuer/origin and scope itself.
+Creation and updates emit one canonical event each; `listing.purchased` is emitted after a verified successful
+payment callback, not merely after checkout creation. App-origin events can **notify and audit only** — never
+move money or issue attestations. Market's existing checkout/settlement flow remains independent.
+
+Publishing is best-effort and does not change the listing, checkout, or webhook response. Missing configuration
+is logged at **error** level naming the setting; unclaimed identity and network failures are also error-logged.
+Mint and publish requests each have a five-second timeout. Refusals (including 401, 403 for unapproved types,
+and 429 with `Retry-After`) are logged without token, key, payload, or response-body contents. There is no automatic
+replay/retry or delivery guarantee; after 401 the next event mints a fresh token.
+
+**Operator step after deployment (prod and dev separately):** review the `emittableEvents` declarations from
+`imajin.app.json` in the `/jin` provision/declarations preview and approve `listing.created`, `listing.updated`,
+and `listing.purchased` for that environment's market app. Declaration alone grants nothing. Until approval,
+the kernel returns 403. Then trigger a listing action and confirm market's app DID/event in the kernel audit
+log and the applicable notify reactor. This code change does not deploy or approve anything.
 
 ## Creating a new app (with template history)
 

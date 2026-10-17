@@ -12,8 +12,8 @@ importers:
         specifier: 0.8.18
         version: 0.8.18(drizzle-orm@0.45.3(postgres@3.4.9))(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
       '@ima-jin/auth-client':
-        specifier: 0.8.18
-        version: 0.8.18(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
+        specifier: 0.8.22
+        version: 0.8.22(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
       '@ima-jin/config':
         specifier: ^0.8.13
         version: 0.8.13(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))
@@ -908,8 +908,8 @@ packages:
     resolution: {integrity: sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==}
     engines: {node: '>=18.18'}
 
-  '@ima-jin/auth-client@0.8.18':
-    resolution: {integrity: sha512-Ujil1Ny9UCSXGy2WdTyLE9TcJf6U1uIfBpnUw6Wu0vd6lVTG3wu4FagCxwxhXo2byjLw4E9FU77BmXrxODnepQ==}
+  '@ima-jin/auth-client@0.8.22':
+    resolution: {integrity: sha512-xDiQUWCdM1OkN6pDWIOGxsmDvhCyBvWI17rGz/+sXd4qulFmkkc4GawbJ5WY8Z7z3yQsrFgxEWsDI1Mm/FVQXQ==}
     peerDependencies:
       next: '>=15.5.24'
 
@@ -922,8 +922,8 @@ packages:
       drizzle-orm:
         optional: true
 
-  '@ima-jin/cid@0.8.18':
-    resolution: {integrity: sha512-75VACdkkJdAOOxTGvS9rVyxJrlrXxoetjmxfWTv+CAcBEiLFmBbiR5eClZIf2SaQKyPMMn2hV3/miSZito53Qw==}
+  '@ima-jin/cid@0.8.22':
+    resolution: {integrity: sha512-QMvdhYmuiUX+CGx0IN7UWIjGgTrKV4XDX9iQqfO3KbA31T+Pw53XvpN0T35UKvFbV644I3+c3HO/0QtRaXXfKQ==}
 
   '@ima-jin/config@0.8.13':
     resolution: {integrity: sha512-2BUO1MMhZZY6OSOmHaCIS8Ll9AUn2X1oolKRkNSbi6HKTHeGIDbzQmiS6lUEDWg45foW2L9w4GFIPlg8keG8KA==}
@@ -961,8 +961,8 @@ packages:
   '@ima-jin/ui@0.8.0':
     resolution: {integrity: sha512-5R8Hwv8YpLm50SOB9+an3z7pTswC58XdLeJBMnc3SX9BRb19EtwXRBiRyorLMXdWjtrAvQASTZ9rsrmeWfhcew==}
 
-  '@ima-jin/vault-core@0.8.18':
-    resolution: {integrity: sha512-SSnmQLCyGL85pZ7Ld5aOmYBesGPUqQ+XT6YJzYsbcz1VWExmQ34RaATsdVwq/cTNbGn/QW9AY6euK6IkBV40HA==}
+  '@ima-jin/vault-core@0.8.22':
+    resolution: {integrity: sha512-+Pw7iSn7bH2BlGw+kNOjMUM8XacEfkINlVFS1KzaJlAcjRObldJqaWrG6efSkOinIHGb9WxUs645sEo0KwoeUA==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -5165,9 +5165,9 @@ snapshots:
 
   '@humanwhocodes/retry@0.4.3': {}
 
-  '@ima-jin/auth-client@0.8.18(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))':
+  '@ima-jin/auth-client@0.8.22(next@15.5.26(@types/node@20.19.43)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))':
     dependencies:
-      '@ima-jin/vault-core': 0.8.18
+      '@ima-jin/vault-core': 0.8.22
       '@noble/ed25519': 2.3.0
       '@noble/hashes': 1.8.0
       jose: 5.10.0
@@ -5186,7 +5186,7 @@ snapshots:
     transitivePeerDependencies:
       - '@ima-jin/db'
 
-  '@ima-jin/cid@0.8.18':
+  '@ima-jin/cid@0.8.22':
     dependencies:
       '@ipld/dag-cbor': 9.2.7
       multiformats: 13.4.2
@@ -5235,9 +5235,9 @@ snapshots:
       - supports-color
       - yjs
 
-  '@ima-jin/vault-core@0.8.18':
+  '@ima-jin/vault-core@0.8.22':
     dependencies:
-      '@ima-jin/cid': 0.8.18
+      '@ima-jin/cid': 0.8.22
       '@noble/curves': 1.9.7
       '@noble/ed25519': 2.3.0
       '@noble/hashes': 1.8.0
