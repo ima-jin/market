@@ -6,7 +6,8 @@ const { readKeystoreMock, resolveKeystorePathMock } = vi.hoisted(() => ({
   resolveKeystorePathMock: vi.fn(() => '/tmp/keystore.json'),
 }));
 
-vi.mock('@ima-jin/auth-client', () => ({
+vi.mock('@ima-jin/auth-client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@ima-jin/auth-client')>(),
   readKeystore: readKeystoreMock,
   resolveKeystorePath: resolveKeystorePathMock,
 }));
@@ -66,6 +67,75 @@ describe('middleware — claim gate (#2427)', () => {
     expect((await (await middlewareFor('/api/listings', { claimed: false })).text()).toLowerCase()).toContain(
       'not claimed yet'
     );
+  });
+});
+
+describe('middleware — root auth callback (#23)', () => {
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_BASE_PATH', '/market');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example/market');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    readKeystoreMock.mockReset();
+    resolveKeystorePathMock.mockClear();
+  });
+
+  function requestFor(path: string): NextRequest {
+    return new NextRequest(new URL(path, 'https://app.example'), {
+      nextConfig: { basePath: '/market' },
+    });
+  }
+
+  it.each([
+    { claimed: true, root: '/market' },
+    { claimed: false, root: '/market' },
+    { claimed: true, root: '/market/' },
+    { claimed: false, root: '/market/' },
+  ])('forwards $root before reading the keystore (claimed=$claimed)', async ({ claimed, root }) => {
+    readKeystoreMock.mockReturnValue(claimed ? {} : null);
+    const { middleware } = await import('../middleware');
+    const query = '?attestation_id=test-attestation&user_did=did%3Aimajin%3Atest&state=preserved';
+    const request = requestFor(`${root}${query}`);
+    expect(request.nextUrl.pathname).toBe('/');
+    expect(request.nextUrl.basePath).toBe('/market');
+
+    const response = middleware(request);
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe(`https://app.example/market/api/auth/callback${query}`);
+    expect(readKeystoreMock).not.toHaveBeenCalled();
+    expect(resolveKeystorePathMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '',
+    '?attestation_id=test-attestation',
+    '?user_did=did%3Aimajin%3Atest',
+    '?attestation_id=&user_did=did%3Aimajin%3Atest',
+    '?attestation_id=test-attestation&user_did=',
+  ])('keeps the existing root behaviour without a complete callback (%s)', async (query) => {
+    const { middleware } = await import('../middleware');
+    readKeystoreMock.mockReturnValue(null);
+    const unclaimed = middleware(requestFor(`/market${query}`));
+    expect(unclaimed.status).toBe(200);
+    expect(await unclaimed.text()).toContain('Not claimed yet');
+    expect(unclaimed.headers.get('location')).toBeNull();
+
+    readKeystoreMock.mockReturnValue({});
+    const claimed = middleware(requestFor(`/market${query}`));
+    expect(claimed.headers.get('x-middleware-next')).toBe('1');
+    expect(claimed.headers.get('location')).toBeNull();
+  });
+
+  it('does not forward callback parameters on a non-root page', async () => {
+    readKeystoreMock.mockReturnValue({});
+    const { middleware } = await import('../middleware');
+    const response = middleware(requestFor('/market/listings?attestation_id=test-attestation&user_did=did:imajin:test'));
+
+    expect(response.headers.get('x-middleware-next')).toBe('1');
+    expect(response.headers.get('location')).toBeNull();
   });
 });
 
