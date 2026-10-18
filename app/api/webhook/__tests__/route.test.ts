@@ -296,6 +296,24 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
     expectNoFulfillment();
   });
 
+  it.each(['sessionId', 'paymentId', 'listingId'])('never logs a structured %s from a malformed paid notification', async (field) => {
+    const untrusted = { privateValue: 'FAKE_NOT_FOR_LOGGING' };
+    const body = {
+      ...PAID,
+      [field]: untrusted,
+      metadata: { ...PAID.metadata, ...(field === 'listingId' ? { listingId: untrusted } : {}) },
+    };
+    dbState.queue([CHECKOUT]);
+    expect((await hook(body)).status).toBe(400);
+    expect(log.warn).toHaveBeenCalledWith({
+      sessionId: field === 'sessionId' ? undefined : PAID.sessionId,
+      paymentId: field === 'paymentId' ? undefined : PAID.paymentId,
+      listingId: field === 'listingId' ? undefined : PAID.metadata.listingId,
+      reason: 'PAYMENT_MISMATCH',
+    }, 'paid notification refused');
+    expectNoFulfillment();
+  });
+
   function uniqueViolation(constraint = 'checkouts_payment_id_unique', code = '23505') {
     return Object.assign(new Error('FAKE_DATABASE_DETAILS_NOT_FOR_LOGGING'), { code, constraint_name: constraint });
   }
@@ -329,6 +347,7 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
     dbState.queue([CHECKOUT], [LISTING], error);
     expect((await hook(PAID)).status).toBe(500);
     expect(log.warn).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledWith({ reason: 'PROCESSING_FAILED' }, 'Webhook error');
     expect(mocks.emitEvent).not.toHaveBeenCalled();
   });
 

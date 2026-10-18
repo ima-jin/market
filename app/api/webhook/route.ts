@@ -17,6 +17,9 @@ const log = createLogger('market');
 function isPaymentSuccess(body: PaidNotification): boolean {
   return body.type === 'payment.succeeded' || body.status === 'paid' || body.status === 'succeeded';
 }
+function auditId(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
 
 function publishListingPurchased(checkout: Checkout, listing: Listing): void {
   // Only the atomic claim winner emits; identity/value come from the server's checkout.
@@ -91,9 +94,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof FulfillmentRejected) {
       log.warn({
-        sessionId: body.sessionId,
-        paymentId: body.paymentId,
-        listingId: body.metadata?.listingId,
+        sessionId: auditId(body.sessionId),
+        paymentId: auditId(body.paymentId),
+        listingId: auditId(body.metadata?.listingId),
         reason: error.code,
       }, 'paid notification refused');
       if (error.code === 'PAYMENT_ID_CONFLICT') {
@@ -101,7 +104,8 @@ export async function POST(request: NextRequest) {
       }
       return errorResponse(error.message, 400);
     }
-    log.error({ err: String(error) }, 'Webhook error');
+    // Query errors can embed SQL parameters; keep unknown failures out of logs.
+    log.error({ reason: 'PROCESSING_FAILED' }, 'Webhook error');
     return errorResponse('Webhook processing failed', 500);
   }
 }
