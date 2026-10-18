@@ -15,7 +15,7 @@
 #   4. install     pnpm install --frozen-lockfile
 #   5. build       next build, env file loaded (NEXT_PUBLIC_* is baked in here)
 #   6. baseline    scripts/migrate-baseline.mjs (idempotent; refuses on mismatch)
-#      migrate     drizzle-kit migrate (forward-only; only what the baseline
+#      migrate     scripts/migrate.mjs (vault-backed; forward-only; only what the baseline
 #                  did not already cover)
 #   7. restart     pm2 startOrReload ecosystem.config.cjs --only <prod|dev>-market
 #   8. health      GET <base path>/api/health must report status "ok"
@@ -97,10 +97,9 @@ pm2_existing_cwd() {
 }
 
 # `node --env-file` and `pm2 --update-env` both let the CALLER's shell env win
-# over the env file — a stray DATABASE_URL exported in the deployer's shell
-# would silently point the build, the migrations AND the pm2 process at the
-# wrong database. Drop every variable the contract knows about so the env file
-# is the single source of truth. Prints names only, never values.
+# over the env file. Drop contract variables, including the test-only database
+# override, so the file supplies non-secret config and the vault supplies
+# credentials. Legacy DATABASE_URL is never consumed. Prints names only.
 scrub_inherited_env() {
   local name scrubbed=()
   while IFS= read -r name; do
@@ -206,7 +205,7 @@ main() {
 
   step 6 "migration baseline (idempotent; refuses on schema mismatch), then migrate (forward-only)"
   run node "--env-file=${env_file}" scripts/migrate-baseline.mjs
-  run node "--env-file=${env_file}" node_modules/drizzle-kit/bin.cjs migrate
+  run node "--env-file=${env_file}" scripts/migrate.mjs
 
   step 7 "restart ${app_name}"
   run pm2 startOrReload ecosystem.config.cjs --only "${app_name}" --update-env

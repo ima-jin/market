@@ -1,12 +1,29 @@
 [
   {
     "name": "DATABASE_URL",
-    "status": "required",
-    "phase": "runtime",
-    "summary": "Postgres connection string for this app's own database (also read by drizzle-kit and scripts/migrate-baseline.mjs). Never a kernel database.",
-    "dev": "postgres://<role>:<password>@localhost:5432/<dev_db>",
-    "prod": "postgres://<role>:<password>@localhost:5432/<prod_db>",
+    "status": "forbidden",
+    "phase": "script",
+    "summary": "Runtime and deployment migrations fetch this app's database locator from the vault into memory. Never read from env, including after vault failure.",
+    "dev": "(vault only)",
+    "prod": "(vault only)",
     "secret": true
+  },
+  {
+    "name": "MIGRATIONS_TEST_DATABASE_URL",
+    "status": "forbidden",
+    "phase": "script",
+    "summary": "Explicit isolated-test database override, accepted only with NODE_ENV=test or CI=true (never NODE_ENV=production). Never a server env entry or a DATABASE_URL fallback. Deploy scrubs inherited overrides.",
+    "dev": "(never set)",
+    "prod": "(never set)",
+    "secret": true
+  },
+  {
+    "name": "CI",
+    "status": "forbidden",
+    "phase": "script",
+    "summary": "CI runner context for isolated migration tests only; never set in a server env file. It does not enable legacy DATABASE_URL input.",
+    "dev": "(never set)",
+    "prod": "(never set)"
   },
   {
     "name": "APP_DB_SCHEMA",

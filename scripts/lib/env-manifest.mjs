@@ -105,10 +105,6 @@ function checkKernelUrls(get, target, errors) {
 }
 
 function checkFixedValues(get, errors) {
-  const databaseUrl = get('DATABASE_URL');
-  if (databaseUrl !== '' && !/^postgres(ql)?:$/.test(parseUrl(databaseUrl)?.protocol ?? '')) {
-    errors.push('DATABASE_URL must be a postgres:// or postgresql:// URL.');
-  }
   const schema = get('APP_DB_SCHEMA');
   if (schema !== '' && schema !== SCHEMA) {
     errors.push(`APP_DB_SCHEMA must be \`${SCHEMA}\` — the existing schema this app owns; renaming it orphans migration state.`);

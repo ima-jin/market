@@ -17,9 +17,11 @@ Concretely, for this app:
   `auth`, `profile`, …) or another app's schema. Every interaction with kernel-owned data goes
   through the kernel's public HTTP API (`IMAJIN_AUTH_URL`), authenticated the same way any
   other caller would be — see `docs/REGISTRATION.md` and `AGENTS.md` §2.
-- `DATABASE_URL` in this app's own `.env.local` points at this app's own Postgres database (or
-  a database this app has been granted a role scoped to `APP_DB_SCHEMA` in) — never the
-  kernel's database.
+- Runtime `DATABASE_URL` is an operator-supplied vault declaration, fetched into typed memory
+  before DB initialization — never in `.env.local`. It identifies only this app's database/role,
+  never the kernel's database. Baseline and migration entry points fetch the same required
+  name through keystore-authenticated `loadFromVault` before constructing a client.
+  No deploy or server environment change is authorized by market#27.
 - `APP_DB_SCHEMA` is set once, at registration time, and never changed afterwards. Renaming it
   would orphan every existing migration's tracking state.
 
@@ -27,13 +29,29 @@ Concretely, for this app:
 
 ```bash
 pnpm db:generate   # diff src/db/schema.ts against migrations/ and write new SQL
-pnpm db:migrate     # apply pending migrations in migrations/ to DATABASE_URL
-pnpm db:studio      # browse this app's own schema
+pnpm db:migrate    # load non-secret .env.local config, fetch from vault, apply migrations
 ```
 
 `migrations/` is committed. `drizzle.config.ts` scopes `drizzle-kit` to `APP_DB_SCHEMA` only
 (`schemaFilter`), so `pnpm db:generate` can never emit a migration for a table outside this
-app's own schema.
+app's own schema. That config is for offline generation only: it has no DB credential.
+`scripts/migrate.mjs` calls `drizzle-orm/postgres-js/migrator` programmatically with
+`migrationsSchema: APP_DB_SCHEMA`, keeping tracking in the app schema.
+
+## Migration credentials
+
+`scripts/migrate-baseline.mjs` and `scripts/migrate.mjs` share
+`scripts/lib/migration-database.mjs`. It requests only `DATABASE_URL` with `onMissing: 'fail'`
+using `IMAJIN_APP_DID`, `IMAJIN_KERNEL_URL` and `IMAJIN_APP_KEYSTORE`. The SDK signs with the
+bootstrap keystore and opens the encrypted response in memory. No credential is copied to env
+or disk; legacy `DATABASE_URL` is never read, even if the vault is unavailable.
+Schema validation, fetch, driver, migration and cleanup failures exit nonzero without provider text.
+Clients are closed after successful or refused migrations.
+
+For isolated tests/CI only, `MIGRATIONS_TEST_DATABASE_URL` explicitly selects a throwaway DB
+when `NODE_ENV=test` or `CI=true`; production mode always refuses it. This is never a fallback
+for server credentials. `check-env` rejects both this override and `CI` in server env files,
+and deploy scrubs inherited test overrides. CI exercises the migrator twice for idempotency.
 
 ## This app's tables (`APP_DB_SCHEMA=market`)
 
@@ -80,7 +98,7 @@ connections to verify concurrency, cross-session/payment uniqueness, rollback an
 Prod and dev already hold the `market` schema (created by the kernel's shared seed). Running `pnpm db:migrate` there
 would fail on `CREATE TABLE`, so `scripts/migrate-baseline.mjs` first proves the live schema matches migration 0000
 and records 0000 as applied in `market.__drizzle_migrations`. It is idempotent, refuses (exit 1) on any mismatch and
-never drops, truncates or alters anything. `scripts/deploy.sh` runs it before every `drizzle-kit migrate`. Details:
+never drops, truncates or alters anything. `scripts/deploy.sh` runs it before every `scripts/migrate.mjs`. Details:
 [`DEPLOY.md`](./DEPLOY.md#migration-baseline).
 
 ## What this app does not do

@@ -48,7 +48,8 @@ async function stop(app: ChildProcess): Promise<void> {
 it.skipIf(process.env.CLAIM_BOOT_SMOKE !== '1')('production boot ignores IMAJIN_APP_CLAIM_CODE → browser claim → live → restart', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'market-claim-boot-'));
   const keystore = join(dir, 'keystore.json');
-  const kernel = createClaimKernel();
+  let vaultMode = 'initial';
+  const kernel = createClaimKernel(() => vaultMode);
   await new Promise<void>((resolve) => kernel.listen(0, '127.0.0.1', resolve));
   const address = kernel.address();
   if (address === null || typeof address === 'string') throw new Error('No test kernel port available');
@@ -56,13 +57,13 @@ it.skipIf(process.env.CLAIM_BOOT_SMOKE !== '1')('production boot ignores IMAJIN_
   const base = `http://127.0.0.1:${port}/market`;
   let output = '';
   const start = (mode = 'initial') => {
+    vaultMode = mode;
     const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(port)], {
       cwd: ROOT,
       env: {
         PATH: process.env.PATH,
         NODE_ENV: 'production',
         APP_DB_SCHEMA: 'market',
-        DATABASE_URL: 'postgres://localhost:5432/market_test',
         IMAJIN_APP_DID: 'did:imajin:app-under-test',
         IMAJIN_APP_CLAIM_CODE: 'FAKE_ENV_CLAIM_CODE_IGNORED',
         IMAJIN_APP_KEYSTORE: keystore,
@@ -70,9 +71,6 @@ it.skipIf(process.env.CLAIM_BOOT_SMOKE !== '1')('production boot ignores IMAJIN_
         IMAJIN_AUTH_URL: `http://127.0.0.1:${address.port}`,
         NEXT_PUBLIC_APP_URL: base,
         NEXT_PUBLIC_BASE_PATH: '/market',
-        // Stub only loadFromVault in this test process; all claim/session code is real.
-        NODE_OPTIONS: `--require=${join(ROOT, 'scripts/__tests__/fixtures/vault-loader.cjs')}`,
-        FAKE_VAULT_TEST_MODE: mode,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -112,13 +110,13 @@ it.skipIf(process.env.CLAIM_BOOT_SMOKE !== '1')('production boot ignores IMAJIN_
     expect(await jsonResponse(await waitForHealth(`${base}/api/health`))).toMatchObject({ claimed: true });
     expect(await jsonResponse(await session())).toBeNull();
     // Claimed boot fails before serving with one safe log, regardless of provider text.
-    for (const failure of ['unreachable', 'missing']) {
+    for (const failure of ['unreachable', 'missing', 'missing-session']) {
       await stop(app);
       output = '';
       app = start(failure);
       const code = await new Promise<number | null>((resolve) => app.once('exit', resolve));
       expect(code).toBe(1);
-      expect(output.match(/SESSION_SECRET unavailable from vault/g)).toHaveLength(1);
+      expect(output.match(/Required vault configuration unavailable/g)).toHaveLength(1);
       expect(output).toContain('/jin select Sync manifest secrets');
       expect(output).not.toContain('FAKE_TEST_ONLY_PROVIDER_ERROR_MUST_NOT_LEAK');
       await expect(fetch(`${base}/api/health`)).rejects.toThrow();

@@ -6,9 +6,13 @@ scripts — with what it does, when it is read, and its dev and prod values. Thi
 (or an installed `@ima-jin/*` package) starts reading a variable that is not documented here, or if this file is
 not the output of `node scripts/gen-env-docs.mjs`.
 
-No secret values live in this repo. Examples are shape-only placeholders. Env holds only the keystore path,
-database connection, kernel URLs and non-secret config. Session signing material is fetched from the vault
-at boot and held in memory only ([REGISTRATION.md](./REGISTRATION.md)); it is never an env variable.
+No secret values live in this repo. Env holds only the keystore path, kernel URLs and non-secret config.
+The database locator and session signing material are fetched from the vault before server initialization
+and held in typed memory only ([REGISTRATION.md](./REGISTRATION.md)); neither is an env credential.
+Baseline and programmatic migration entry points fetch the same database credential through
+keystore-authenticated encrypted vault fetch. Legacy database env input is never read.
+The explicit `MIGRATIONS_TEST_DATABASE_URL` override is only for isolated tests/CI;
+server env validation rejects it and deploy scrubs it from the caller's environment.
 
 ## The env files
 
@@ -36,6 +40,8 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 - **`IMAJIN_ENV` and `NEXT_PUBLIC_SERVICE_PREFIX`.** `dev` / `dev-` on dev, **unset** on prod. A production build is
   `NODE_ENV=production` on both, so these are what tell dev from prod.
 - **Database.** Separate Postgres database per environment; the schema name is `market` in both.
+  Sync the name/kind-only manifest, then use App secrets set/rotate on `/jin` with owner countersign.
+  Manifest sync alone does not supply the database locator. Never enter it in a shell or env file.
 - **Identity.** Each environment has its own app DID and keystore file (`IMAJIN_APP_KEYSTORE`). Approve on
   the kernel's `/jin`, then paste the one-time code only in `/market/claim` in the browser; no env edit or restart.
 - **Session signing.** The kernel issues and seals the declared recipe during provision/claim; boot loads it into memory.
@@ -50,7 +56,6 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 
 | Variable | When | Dev | Prod | Notes |
 |---|---|---|---|---|
-| `DATABASE_URL` (secret) | runtime | `postgres://<role>:<password>@localhost:5432/<dev_db>` | `postgres://<role>:<password>@localhost:5432/<prod_db>` | Postgres connection string for this app's own database (also read by drizzle-kit and scripts/migrate-baseline.mjs). Never a kernel database. |
 | `APP_DB_SCHEMA` | runtime | `market` | `market` | The one Postgres schema this app owns. Fixed to `market` — the existing prod/dev schema; never change it (it would orphan migration state). |
 | `AUTH_SERVICE_URL` | runtime | `https://dev-jin.imajin.ai/auth` | `https://jin.imajin.ai/auth` | Kernel auth service base URL, including the /auth prefix. Read by @ima-jin/auth for session/app-token verification and kernel webhook public signing-key discovery. |
 | `IMAJIN_AUTH_URL` | runtime | `https://dev-jin.imajin.ai` | `https://jin.imajin.ai` | Kernel base URL for the Sign-in-with-Imajin flow (src/lib/auth-config.ts). Same host as IMAJIN_KERNEL_URL. |
@@ -87,6 +92,9 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 
 | Variable | When | Dev | Prod | Notes |
 |---|---|---|---|---|
+| `DATABASE_URL` (secret) | script | (vault only) | (vault only) | Runtime and deployment migrations fetch this app's database locator from the vault into memory. Never read from env, including after vault failure. |
+| `MIGRATIONS_TEST_DATABASE_URL` (secret) | script | (never set) | (never set) | Explicit isolated-test database override, accepted only with NODE_ENV=test or CI=true (never NODE_ENV=production). Never a server env entry or a DATABASE_URL fallback. Deploy scrubs inherited overrides. |
+| `CI` | script | (never set) | (never set) | CI runner context for isolated migration tests only; never set in a server env file. It does not enable legacy DATABASE_URL input. |
 | `IMAJIN_APP_PRIVATE_KEY` (secret) | runtime | (never set) | (never set) | Removed. The app throws at boot if this is set — the signing key comes from loadAppSigningKey(), never from env. |
 
 ## Set by Next.js / pm2 (never in the env file)
@@ -142,7 +150,7 @@ NEXT_PUBLIC_APP_URL=https://dev-jin.imajin.ai/market
 # MUST be `dev` here: selects the imajin_session_dev cookie.
 IMAJIN_ENV=dev
 
-DATABASE_URL=postgres://market:CHANGE_ME@localhost:5432/imajin_dev
+# DATABASE_URL is loaded from the vault, never from this file.
 APP_DB_SCHEMA=market
 
 # --- Kernel (public surface only) ---
@@ -184,7 +192,7 @@ NEXT_PUBLIC_MEDIA_URL=https://jin.imajin.ai/media
 NEXT_PUBLIC_APP_URL=https://jin.imajin.ai/market
 # IMAJIN_ENV stays UNSET on prod (`dev` would select the dev session cookie).
 
-DATABASE_URL=postgres://market:CHANGE_ME@localhost:5432/imajin_prod
+# DATABASE_URL is loaded from the vault, never from this file.
 APP_DB_SCHEMA=market
 
 # --- Kernel (public surface only) ---

@@ -93,7 +93,7 @@ describe('register', () => {
     expect(exit).toHaveBeenCalledTimes(1);
     expect(exit).toHaveBeenCalledWith(1);
     expect(log.mock.calls).toEqual([[
-      'SESSION_SECRET unavailable from vault — on /jin select Sync manifest secrets, countersign, and restart market.',
+      new SelfSecretsUnavailableError().message,
     ]]);
   });
 });
