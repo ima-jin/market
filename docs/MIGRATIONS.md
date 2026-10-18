@@ -17,9 +17,11 @@ Concretely, for this app:
   `auth`, `profile`, …) or another app's schema. Every interaction with kernel-owned data goes
   through the kernel's public HTTP API (`IMAJIN_AUTH_URL`), authenticated the same way any
   other caller would be — see `docs/REGISTRATION.md` and `AGENTS.md` §2.
-- `DATABASE_URL` in this app's own `.env.local` points at this app's own Postgres database (or
-  a database this app has been granted a role scoped to `APP_DB_SCHEMA` in) — never the
-  kernel's database.
+- Runtime `DATABASE_URL` is an operator-supplied vault declaration, fetched into typed memory
+  before DB initialization — never in `.env.local`. It identifies only this app's database/role,
+  never the kernel's database. The legacy tools below still use env input for isolated CI only.
+  Do not run their env-based server deployment path; a vault-aware migration/cutover is
+  coordinated separately in ima-jin/imajin-ai#2241, not authorized by market#27.
 - `APP_DB_SCHEMA` is set once, at registration time, and never changed afterwards. Renaming it
   would orphan every existing migration's tracking state.
 

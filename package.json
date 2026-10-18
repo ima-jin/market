@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@ima-jin/auth": "0.8.18",
-    "@ima-jin/auth-client": "0.8.22",
+    "@ima-jin/auth-client": "0.8.24",
     "@ima-jin/config": "^0.8.13",
     "@ima-jin/fair": "^0.8.0",
     "@ima-jin/logger": "^0.8.13",

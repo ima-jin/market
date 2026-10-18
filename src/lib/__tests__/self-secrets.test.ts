@@ -13,12 +13,16 @@ import {
 const { loadFromVaultMock, signingMock, readKeystoreMock } = vi.hoisted(() => ({
   loadFromVaultMock: vi.fn(), signingMock: vi.fn(), readKeystoreMock: vi.fn(),
 }));
-vi.mock('@ima-jin/auth-client', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@ima-jin/auth-client')>(),
-  loadFromVault: loadFromVaultMock,
-  loadAppSigningKey: signingMock,
-  readKeystore: readKeystoreMock,
-}));
+vi.mock('@ima-jin/auth-client', async (importOriginal) => {
+  const { mockVaultBoot } = await import('../../../test/__tests__/vault-boot.stub');
+  return {
+    ...await importOriginal<typeof import('@ima-jin/auth-client')>(),
+    createVaultBoot: mockVaultBoot(loadFromVaultMock),
+    loadAppSigningKey: signingMock,
+    readKeystore: readKeystoreMock,
+  };
+});
+vi.mock('../server', () => ({ initializeServer: vi.fn() }));
 
 const FAKE_VALUE = 'FAKE_TEST_ONLY_VAULT_SESSION_MATERIAL';
 const FAKE_ROTATED = 'FAKE_TEST_ONLY_ROTATED_SESSION_MATERIAL';
@@ -31,7 +35,9 @@ const identity = {
   privateKey: 'FAKE_TEST_ONLY_PRIVATE_KEY',
   publicKey: 'FAKE_TEST_ONLY_PUBLIC_KEY',
 };
-const result = (value = FAKE_VALUE) => ({ values: { SESSION_SECRET: value }, degraded: [] });
+const result = (value = FAKE_VALUE) => ({
+  values: { DATABASE_URL: 'FAKE_TEST_ONLY_DATABASE_LOCATOR', SESSION_SECRET: value }, degraded: [],
+});
 
 beforeEach(() => {
   resetSigningIdentityForTests();
@@ -51,14 +57,20 @@ afterEach(() => {
 
 describe('vault-only boot and sessions', () => {
   it('loads the manifest using this app identity/keystore and serves signed-in sessions without env secrets', async () => {
-    expect(manifest.secrets).toEqual([{ name: 'SESSION_SECRET', kind: 'random-32B' }]);
+    expect(manifest.secrets).toEqual([
+      { name: 'DATABASE_URL', kind: 'operator-supplied' },
+      { name: 'SESSION_SECRET', kind: 'random-32B' },
+    ]);
     await bootstrapSigningIdentity();
     expect(loadFromVaultMock).toHaveBeenCalledTimes(1);
     expect(loadFromVaultMock).toHaveBeenCalledWith({
       appDid: identity.appDid,
       kernelUrl: 'https://kernel.example.test',
       keystorePath: '/fake-test-only/market.keystore.json',
-      keys: [{ key: 'SESSION_SECRET', onMissing: 'fail' }],
+      keys: [
+        { key: 'DATABASE_URL', onMissing: 'fail' },
+        { key: 'SESSION_SECRET', onMissing: 'fail' },
+      ],
       fetchOptions: { signal: expect.any(AbortSignal) },
     });
     expect(signingMock.mock.invocationCallOrder[0]).toBeLessThan(loadFromVaultMock.mock.invocationCallOrder[0]);
@@ -124,7 +136,7 @@ describe('vault-only boot and sessions', () => {
     const error = await bootstrapSigningIdentity().catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(SelfSecretsUnavailableError);
     expect((error as Error).message).toBe(
-      'SESSION_SECRET unavailable from vault — on /jin select Sync manifest secrets, countersign, and restart market.',
+      new SelfSecretsUnavailableError().message,
     );
     expect((error as Error).cause).toBeUndefined();
     expect(log).not.toHaveBeenCalled(); // The boot boundary reports only the sanitised throw.

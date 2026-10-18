@@ -1,5 +1,4 @@
 # market — Imajin marketplace app (third-party app on Imajin)
-<!-- Vault boot adoption tracked in #27; operator cutover remains separate. -->
 
 > Forked from [`ima-jin/imajin-app-template`](https://github.com/ima-jin/imajin-app-template). **Read
 > [`AGENTS.md`](./AGENTS.md) first** — it defines the boundary this app must not cross.
@@ -34,20 +33,26 @@ The kernel verifies both and returns `{ appDid, userDid, scopes }` — that trip
 2. **Register this app with the kernel** — see [`docs/REGISTRATION.md`](./docs/REGISTRATION.md).
    You'll get back this app's `appDid` and registry `id`.
 3. **Set env**: `cp .env.example .env.local`, then fill in `IMAJIN_APP_DID`,
-   `NEXT_PUBLIC_IMAJIN_APP_ID`, `APP_DB_SCHEMA`, `DATABASE_URL`, and
+   `NEXT_PUBLIC_IMAJIN_APP_ID`, `APP_DB_SCHEMA`, and
    `IMAJIN_KERNEL_URL`. This app refuses to start without `IMAJIN_APP_DID` set, or if a raw
    `IMAJIN_APP_PRIVATE_KEY` is present (see `instrumentation.ts`) — it fetches its own signing key
    at boot via `@ima-jin/auth-client`'s `loadAppSigningKey()` instead. The only claim path is
    *approve on `/jin` → open `<this app>/claim` → paste the code →
    done* — see [`docs/REGISTRATION.md`](./docs/REGISTRATION.md).
-4. **Migrate this app's own database** (its own Postgres schema only — see
+4. **Prepare vault credentials** through the operator's `/jin` App surface:
+   sync `imajin.app.json`, then App secrets set/rotate for `DATABASE_URL` with owner countersign.
+   The value is operator-supplied, never put in env or a shell. Session signing remains kernel-generated.
+   `createVaultBoot` fetches both credentials through the bootstrap keystore-authenticated encrypted
+   channel before dynamically importing the server initializer; only then is the database client created.
+   Missing required credentials fail closed with no env fallback. Build and unclaimed mode never create a DB client.
+5. **Migrations are separate from runtime boot** (its own Postgres schema only — see
    [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md); on a database that already holds the `market` schema, i.e. prod/dev,
    `scripts/deploy.sh` runs the migration baseline first — see [`docs/DEPLOY.md`](./docs/DEPLOY.md)):
    ```bash
    pnpm install
-   pnpm db:migrate        # creates the `market` schema (APP_DB_SCHEMA=market) and its tables
+   # Migration commands are for isolated CI databases, not server credential handling.
    ```
-5. **Run it**:
+6. **Run it**:
    ```bash
    pnpm dev
    ```
@@ -68,7 +73,7 @@ repo. Dev and prod are **separate registered apps** — each has its own DID, cl
    The app is live immediately — no env edit or restart. The exchange persists a `0600` bootstrap keystore
    at `IMAJIN_APP_KEYSTORE`; `/claim` and `/api/claim` then return 404.
 3. The kernel issues and seals the session signing recipe declared in `imajin.app.json` during provision/claim.
-   Boot loads it with `loadFromVault` into memory before enabling sessions. For an existing app, select
+   Boot loads it with `createVaultBoot` into memory before importing the server or enabling sessions. For an existing app, select
    **Sync manifest secrets** on `/jin` and countersign. Rotate there, then restart through the operator tool
    to pick up the new generation (existing sessions are invalidated); no secret env or file edit.
 4. Later boots use the keystore alone. A lost keystore needs a re-approval with `reissueClaim: true`.
@@ -79,7 +84,11 @@ Full detail: [`docs/REGISTRATION.md`](./docs/REGISTRATION.md) and [`docs/DEPLOY.
 
 ## Deploying (prod + dev)
 
-One command per environment, run from that environment's checkout on the server (`~/prod/market`, `~/dev/market`):
+**Rollout is not authorized by #27.** The historical deployment path below still runs env-based migration
+tooling and must not be used for a vault-only server cutover. Coordinate that separately in
+ima-jin/imajin-ai#2241; keep #2260 separate. No deploy or environment change is part of this adoption.
+
+Historical command per environment (`~/prod/market`, `~/dev/market`):
 
 ```bash
 scripts/deploy.sh dev                 # or: scripts/deploy.sh prod

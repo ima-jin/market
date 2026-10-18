@@ -23,9 +23,11 @@ scripts — with what it does, when it is read, and its dev and prod values. Thi
 (or an installed \`@ima-jin/*\` package) starts reading a variable that is not documented here, or if this file is
 not the output of \`node scripts/gen-env-docs.mjs\`.
 
-No secret values live in this repo. Examples are shape-only placeholders. Env holds only the keystore path,
-database connection, kernel URLs and non-secret config. Session signing material is fetched from the vault
-at boot and held in memory only ([REGISTRATION.md](./REGISTRATION.md)); it is never an env variable.
+No secret values live in this repo. Env holds only the keystore path, kernel URLs and non-secret config.
+The database locator and session signing material are fetched from the vault before server initialization
+and held in typed memory only ([REGISTRATION.md](./REGISTRATION.md)); neither is an env credential.
+Legacy migration tools accept env only for isolated CI databases. Do not use the existing deployment
+migration path on servers; its vault-aware cutover is coordinated separately in imajin-ai#2241.
 
 ## The env files
 
@@ -53,6 +55,8 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 - **\`IMAJIN_ENV\` and \`NEXT_PUBLIC_SERVICE_PREFIX\`.** \`dev\` / \`dev-\` on dev, **unset** on prod. A production build is
   \`NODE_ENV=production\` on both, so these are what tell dev from prod.
 - **Database.** Separate Postgres database per environment; the schema name is \`market\` in both.
+  Sync the name/kind-only manifest, then use App secrets set/rotate on \`/jin\` with owner countersign.
+  Manifest sync alone does not supply the database locator. Never enter it in a shell or env file.
 - **Identity.** Each environment has its own app DID and keystore file (\`IMAJIN_APP_KEYSTORE\`). Approve on
   the kernel's \`/jin\`, then paste the one-time code only in \`/market/claim\` in the browser; no env edit or restart.
 - **Session signing.** The kernel issues and seals the declared recipe during provision/claim; boot loads it into memory.

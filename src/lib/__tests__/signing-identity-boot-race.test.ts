@@ -37,7 +37,7 @@ it('never falls back to IMAJIN_APP_CLAIM_CODE if the keystore disappears during 
   const fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 
-  await expect(bootstrapSigningIdentity()).rejects.toThrow(/SESSION_SECRET unavailable from vault.*\/jin/);
+  await expect(bootstrapSigningIdentity()).rejects.toThrow(/Required vault configuration unavailable.*\/jin/);
   expect(fetchMock).not.toHaveBeenCalled();
   expect(isAppClaimed()).toBe(false);
 });

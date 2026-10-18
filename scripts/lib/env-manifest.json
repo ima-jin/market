@@ -1,11 +1,11 @@
 [
   {
     "name": "DATABASE_URL",
-    "status": "required",
-    "phase": "runtime",
-    "summary": "Postgres connection string for this app's own database (also read by drizzle-kit and scripts/migrate-baseline.mjs). Never a kernel database.",
-    "dev": "postgres://<role>:<password>@localhost:5432/<dev_db>",
-    "prod": "postgres://<role>:<password>@localhost:5432/<prod_db>",
+    "status": "forbidden",
+    "phase": "script",
+    "summary": "Runtime loads this app's own database locator through createVaultBoot, never env. Env input remains only for isolated CI migration tooling (drizzle-kit and scripts/migrate-baseline.mjs), not server env files. Server migration/cutover is coordinated separately in imajin-ai#2241.",
+    "dev": "(vault only)",
+    "prod": "(vault only)",
     "secret": true
   },
   {

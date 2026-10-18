@@ -1,5 +1,11 @@
 # Deploying market (prod + dev)
 
+**Vault adoption (#27) is app code only, not rollout authorization.** Runtime credentials are
+vault-only. The historical commands below still invoke env-based migration tools and must not
+be used for server cutover until the vault-aware migration path is coordinated separately in
+ima-jin/imajin-ai#2241. Do not copy/import/rotate any server value through SSH, a shell, or env files.
+Keep ima-jin/imajin-ai#2260 separate.
+
 market is deployed from **this repo**, as its own pm2 process behind the kernel host's Caddy. Nothing in
 `ima-jin/imajin-ai` builds, migrates, or restarts it any more (imajin-ai#1989). Everything here goes through the
 registered-app contract: a kernel-minted app identity, the published `@ima-jin/*` SDK, and the kernel's public HTTP
@@ -55,7 +61,17 @@ Before upgrading market, use the approved operator tool to deploy a kernel that 
 ima-jin/imajin-ai#2801, then select **Sync manifest secrets** on `/jin` for this app and
 countersign the proposal. Do this on each environment before upgrading its app.
 Skipping the kernel upgrade or manifest Sync makes an already-claimed app fail closed at boot.
-No secret is generated, revealed, pasted into a shell, or copied to an env file.
+For #27 the kernel must also include ima-jin/imajin-ai#2851, and the app uses the public
+`@ima-jin/auth-client@0.8.24`. Sync the `DATABASE_URL` name/kind-only `operator-supplied`
+declaration, then use **App secrets set/rotate** on `/jin` with **owner countersign** to supply
+the existing external value. Manifest sync alone creates no imported value. Repeat separately
+for dev and prod only during the approved cutover; no such action is performed by this PR.
+Session signing stays generated (`random-32B`), including dev: no imported value is needed.
+Callbacks already use kernel signatures, so there is no shared callback secret to declare.
+`createVaultBoot` authenticates encrypted fetches using the bootstrap keystore, validates both
+required names in memory, and only then dynamically imports the server initializer and constructs
+Postgres. Unavailable values prevent claimed boot/activation; no value is copied to process.env.
+No secret is revealed, pasted into a shell, or copied to an env file.
 If a stale vault-issued env entry remains, boot warns by name only that it is ignored and must
 be deleted; it is never used as a fallback.
 ## First deploy of an environment (fresh checkout)
@@ -77,7 +93,8 @@ Use `~/dev/market` and `.env.dev.example` / `scripts/deploy.sh dev` for dev. Dep
 - **Mint the app identity** — separately for dev and prod, through the kernel's claim flow. See
   [Identity](#identity-the-claim-flow) below and [REGISTRATION.md](./REGISTRATION.md). Minting happens on the kernel
   side (the operator's `/jin` approval card); this repo only redeems the resulting one-time code.
-- **Create the databases/roles** and put the connection strings in each `.env.local`. Prod/dev already contain the
+- **Create the databases/roles** through the approved operator process and supply database locators only through
+  `/jin` App secrets set/rotate with owner countersign, never `.env.local`. Prod/dev already contain the
   `market` schema; the baseline adopts it in place.
 - **Session signing is vault-only.** The kernel issues and seals the recipe in `imajin.app.json` on
   provision/claim. For an existing app select **Sync manifest secrets** on `/jin` and countersign.
