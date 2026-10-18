@@ -15,7 +15,7 @@ import { appBaseUrl, payServiceUrl } from '@/lib/env';
 import { cardRailFailure } from '@/lib/card-rail';
 import { isHardIdentity } from '@/lib/kernel/client';
 import { withBasePath } from '@/lib/base-path';
-import { recordPendingCheckout, type PayeeChainEntry } from '@/lib/pending-checkout';
+import { recordPendingCheckout, type CheckoutOwnership, type PayeeChainEntry } from '@/lib/pending-checkout';
 import { buildPayeeChain, type FairManifest } from '@/lib/settle';
 import { errorResponse, jsonResponse } from '@/lib/utils';
 
@@ -44,12 +44,10 @@ async function resolveBuyer(
   return { buyerDid: caller ? caller.did : undefined };
 }
 
-async function parseQuantity(request: NextRequest): Promise<number> {
+async function parseQuantity(request: NextRequest): Promise<unknown> {
   try {
     const body = await request.json();
-    if (body?.quantity && typeof body.quantity === 'number' && body.quantity > 0) {
-      return body.quantity;
-    }
+    return body?.quantity ?? 1;
   } catch {
     // body is optional — default to quantity 1
   }
@@ -58,23 +56,19 @@ async function parseQuantity(request: NextRequest): Promise<number> {
 
 /**
  * Remember which kernel payment (`transactionId`) this Stripe session is, so the purchase
- * webhook can settle it. Non-fatal: the buyer's checkout has already been created.
+ * webhook can fulfill it. Never expose a payment URL without its local ownership record.
  */
 async function rememberCheckout(
   listingId: string,
   checkout: { id?: string; transactionId?: string },
   amountCents: number,
-  chain: PayeeChainEntry[]
+  chain: PayeeChainEntry[],
+  ownership: CheckoutOwnership,
 ): Promise<void> {
-  if (!checkout.id || !checkout.transactionId) {
-    log.error({ listingId }, 'Pay checkout response had no session id / transactionId — purchase will not settle');
-    return;
+  if (typeof checkout.id !== 'string' || !checkout.id || typeof checkout.transactionId !== 'string' || !checkout.transactionId) {
+    throw new Error('Pay checkout response had no session id / transactionId');
   }
-  try {
-    await recordPendingCheckout(listingId, checkout.id, { transactionId: checkout.transactionId, amountCents, chain });
-  } catch (err) {
-    log.error({ err: String(err), listingId }, 'Failed to record pending checkout — purchase will not settle');
-  }
+  await recordPendingCheckout(listingId, checkout.id, { transactionId: checkout.transactionId, amountCents, chain, ...ownership });
 }
 
 /**
@@ -120,6 +114,12 @@ export async function POST(request: NextRequest, props: RouteProps) {
 
     // 3. Parse body for quantity
     const quantity = await parseQuantity(request);
+    if (typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity <= 0) {
+      return errorResponse('Quantity must be a positive integer', 400);
+    }
+    if (listing.quantity !== null && listing.quantity < quantity) {
+      return errorResponse('Insufficient listing quantity', 400);
+    }
 
     // 4. Build .fair manifest (use listing's manifest if present)
     const fairManifest = (listing.fairManifest as object | null) ?? {
@@ -133,6 +133,9 @@ export async function POST(request: NextRequest, props: RouteProps) {
 
     // 5. Declare the payees (#2740). The chain is fixed here and re-posted verbatim at settle time.
     const amountCents = listing.price * quantity;
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > 2147483647 || !listing.currency) {
+      return errorResponse('Invalid listing price or currency', 400);
+    }
     const payeeChain = buildPayeeChain({ amountCents, fairManifest: fairManifest as FairManifest, buyerDid });
     const headers = await checkoutHeaders();
     if (!headers) {
@@ -185,10 +188,13 @@ export async function POST(request: NextRequest, props: RouteProps) {
 
     const checkout = await payResponse.json();
 
-    if (payeeChain) {
-      await rememberCheckout(listing.id, checkout, amountCents, payeeChain);
-    }
-
+    await rememberCheckout(listing.id, checkout, amountCents, payeeChain ?? [], {
+      sellerDid: listing.sellerDid,
+      buyerDid: buyerDid ?? '',
+      quantity,
+      unitPrice: listing.price,
+      currency: listing.currency,
+    });
 
     return jsonResponse({ url: checkout.url, sessionId: checkout.id });
   } catch (error) {

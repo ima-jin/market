@@ -23,6 +23,7 @@ const LISTING = {
   title: 'Chair',
   description: 'Oak',
   price: 5000,
+  quantity: 10,
   currency: 'CAD',
   status: 'active',
   sellerTier: 'public_onplatform',
@@ -47,7 +48,7 @@ function purchase(body?: string) {
   );
 }
 
-function payOk(body: unknown = { url: 'https://checkout.test/s', id: 'cs_1' }) {
+function payOk(body: unknown = { url: 'https://checkout.test/s', id: 'cs_1', transactionId: 'tx_1' }) {
   mocks.fetch.mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
 }
 
@@ -147,12 +148,9 @@ describe('POST /api/listings/:id/purchase', () => {
     expect(payBody().cancelUrl).toBe('https://market.imajin.ai/market/listings/lst_1');
   });
 
-  it('honours a positive numeric quantity and ignores everything else', async () => {
+  it('honours a positive integer quantity and defaults an absent body', async () => {
     for (const [raw, expected] of [
       ['{"quantity":3}', 3],
-      ['{"quantity":0}', 1],
-      ['{"quantity":-2}', 1],
-      ['{"quantity":"5"}', 1],
       ['not json', 1],
       [undefined, 1],
     ] as const) {
@@ -165,6 +163,24 @@ describe('POST /api/listings/:id/purchase', () => {
 
       expect(payBody().items[0].quantity).toBe(expected);
     }
+  });
+
+  it.each([0, -2, 1.5, "5", 1e100])('rejects invalid quantity %s before creating checkout', async (quantity) => {
+    dbState.queue([LISTING]);
+    expect((await purchase(JSON.stringify({ quantity }))).status).toBe(400);
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses insufficient stock before checkout', async () => {
+    dbState.queue([{ ...LISTING, quantity: 1 }]);
+    expect((await purchase('{"quantity":2}')).status).toBe(400);
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([{ price: 0 }, { price: -1 }, { price: 2147483648 }, { currency: null }])('refuses unusable DB price/currency %j', async (override) => {
+    dbState.queue([{ ...LISTING, ...override }]);
+    expect((await purchase()).status).toBe(400);
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
   it("falls back to a 99/1 seller/platform split when the listing has no .fair manifest", async () => {
