@@ -313,14 +313,14 @@ describe.skipIf(!databaseUrl)('migrate-baseline against a real Postgres', () => 
       expect(await rowCounts()).toEqual(SEEDED_COUNTS);
     });
 
-    it('leaves drizzle migrate a clean no-op afterwards (no CREATE TABLE collision)', async () => {
+    it('applies later migrations afterwards without a CREATE TABLE collision', async () => {
       await seedProdLike();
       await run(sql);
 
       await migrate(drizzle(sql), { migrationsFolder: MIGRATIONS_FOLDER, migrationsSchema: SCHEMA });
 
       expect(await rowCounts()).toEqual(SEEDED_COUNTS);
-      expect(await trackingRows()).toHaveLength(1);
+      expect(await trackingRows()).toHaveLength(readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER }).length);
     });
 
     it('without the baseline, migrate fails on the existing schema (why this script exists)', async () => {
@@ -335,6 +335,7 @@ describe.skipIf(!databaseUrl)('migrate-baseline against a real Postgres', () => 
       expect((await run(sql)).status).toBe('already-baselined');
 
       // Same schema, but without drizzle's record of it: must validate and baseline.
+      await sql.unsafe('DROP TABLE market.checkouts');
       await sql.unsafe(`DROP TABLE ${TRACKING}`);
       expect((await run(sql)).status).toBe('baselined');
     });

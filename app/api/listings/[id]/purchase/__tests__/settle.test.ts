@@ -55,6 +55,7 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     title: 'Vintage Chair',
     description: 'A chair',
     price: 2500,
+    quantity: 10,
     currency: 'CAD',
     status: 'active',
     sellerTier: 'public_onplatform',
@@ -147,6 +148,7 @@ describe('POST /api/listings/:id/purchase — listing with a .fair chain', () =>
     expect(mocks.recordPendingCheckout).toHaveBeenCalledWith(LISTING_ID, 'cs_test_1', {
       transactionId: 'tx_abc',
       amountCents: 2500,
+      sellerDid: SELLER, buyerDid: BUYER, quantity: 1, unitPrice: 2500, currency: 'CAD',
       chain: body.payeeManifest.chain,
     });
   });
@@ -194,31 +196,31 @@ describe('POST /api/listings/:id/purchase — listing with a .fair chain', () =>
     expect(mocks.recordPendingCheckout).not.toHaveBeenCalled();
   });
 
-  it('still returns the checkout URL when pay returns no transactionId', async () => {
+  it('refuses the checkout URL when pay returns no transactionId', async () => {
     mocks.fetch.mockImplementation(async () => checkoutOk({ transactionId: undefined }));
 
     const res = await purchase();
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(mocks.recordPendingCheckout).not.toHaveBeenCalled();
   });
 
-  it('still returns the checkout URL when pay returns no session id', async () => {
+  it('refuses the checkout URL when pay returns no session id', async () => {
     mocks.fetch.mockImplementation(async () => checkoutOk({ id: undefined }));
 
     const res = await purchase();
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(mocks.recordPendingCheckout).not.toHaveBeenCalled();
   });
 
-  it('still returns the checkout URL when recording the checkout fails', async () => {
+  it('refuses the checkout URL when recording the checkout fails', async () => {
     mocks.recordPendingCheckout.mockRejectedValue(new Error('db down'));
 
     const res = await purchase();
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ url: CHECKOUT_URL, sessionId: 'cs_test_1' });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Purchase failed' });
   });
 
   it("returns pay's error message when checkout is refused", async () => {
@@ -242,7 +244,7 @@ describe('POST /api/listings/:id/purchase — listing without a .fair chain', ()
     { name: 'empty chain', fairManifest: { version: '1.0', chain: [] } },
   ];
 
-  it.each(manifests)('authenticates checkout with $name, without a payee manifest or settlement record', async ({ fairManifest }) => {
+  it.each(manifests)('authenticates and records checkout with $name, without a payee manifest', async ({ fairManifest }) => {
     dbState.reset();
     dbState.queue([listingRow({ fairManifest })]);
     anonymous();
@@ -267,7 +269,7 @@ describe('POST /api/listings/:id/purchase — listing without a .fair chain', ()
         { did: 'did:imajin:platform', share: 0.01, role: 'platform' },
       ],
     });
-    expect(mocks.recordPendingCheckout).not.toHaveBeenCalled();
+    expect(mocks.recordPendingCheckout).toHaveBeenCalledWith(LISTING_ID, 'cs_test_1', expect.objectContaining({ chain: [], buyerDid: '', quantity: 1, unitPrice: 2500, amountCents: 2500, currency: 'CAD', sellerDid: SELLER }));
   });
 
   it.each(manifests)('fails closed with a retryable 503 when minting fails with $name', async ({ fairManifest }) => {

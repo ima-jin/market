@@ -9,7 +9,7 @@ if (!schema || !url) {
   throw new Error('APP_DB_SCHEMA and DATABASE_URL must be set.');
 }
 
-const expected = ['__drizzle_migrations', 'disputes', 'listings', 'seller_settings'];
+const expected = ['__drizzle_migrations', 'checkouts', 'disputes', 'listings', 'seller_settings'];
 
 const sql = postgres(url, { max: 1 });
 try {
