@@ -176,6 +176,18 @@ describe('PATCH /api/listings/:id', () => {
     expect(setValues()).not.toHaveProperty('currency');
   });
 
+  it.each([null, 0, 123, false, true, {}, [], ['CAD']])('rejects non-string currency %j before mutation', async (currency) => {
+    dbState.queue([EXISTING]);
+
+    const res = await PATCH(req('PATCH', { currency, price: 5000 }), ROUTE_PARAMS);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'currency must be a string', code: 'INVALID_CURRENCY' });
+    expect(dbState.argsOf('set', 'update')).toHaveLength(0);
+    expect(mocks.fetchNodeSelf).not.toHaveBeenCalled();
+    expect(mocks.emitEvent).not.toHaveBeenCalled();
+  });
+
   it('recalculates the .fair manifest when the price changes', async () => {
     queueUpdate();
 

@@ -3,6 +3,7 @@
  * Fulfillment requires a server-recorded checkout, attested seller and DB price.
  */
 import { NextRequest } from 'next/server';
+import { DrizzleQueryError } from 'drizzle-orm';
 import { KernelWebhookError, verifyKernelWebhook } from '@ima-jin/auth/kernel-webhook';
 import { createLogger } from '@ima-jin/logger';
 import type { Checkout, Listing } from '@/db';
@@ -19,6 +20,21 @@ function isPaymentSuccess(body: PaidNotification): boolean {
 }
 function auditId(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+function errorScalar(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Za-z0-9_]{1,128}$/.test(value) ? value : undefined;
+}
+
+function safeErrorScalars(error: unknown): { name?: string; code?: string; constraint?: string } {
+  // Drizzle's message includes SQL/parameters; inspect only its driver's error.
+  const source = error instanceof DrizzleQueryError ? error.cause : error;
+  if (!(source instanceof Error)) return {};
+  const constraint = 'constraint_name' in source ? source.constraint_name : undefined;
+  return {
+    name: errorScalar(source.name),
+    code: errorScalar('code' in source ? source.code : undefined),
+    constraint: errorScalar(constraint) ?? errorScalar('constraint' in source ? source.constraint : undefined),
+  };
 }
 
 function publishListingPurchased(checkout: Checkout, listing: Listing): void {
@@ -104,8 +120,8 @@ export async function POST(request: NextRequest) {
       }
       return errorResponse(error.message, 400);
     }
-    // Query errors can embed SQL parameters; keep unknown failures out of logs.
-    log.error({ reason: 'PROCESSING_FAILED' }, 'Webhook error');
+    // Never serialize the error, its message/stack, or the notification.
+    log.error({ reason: 'PROCESSING_FAILED', ...safeErrorScalars(error) }, 'Webhook error');
     return errorResponse('Webhook processing failed', 500);
   }
 }
