@@ -231,3 +231,4 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
   small file (`src/lib/media.ts`, `src/components/OnboardGate.tsx`) with the gap issue
   in its header, so it can be deleted when the package ships. Known kernel-side gaps that change behaviour:
   acting-as-scope (#2639) and identity tier for `trust_gated` purchases (#2640).
+
