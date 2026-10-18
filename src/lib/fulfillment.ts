@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { DrizzleQueryError, eq } from 'drizzle-orm';
 import { checkouts, db, listings, type Checkout, type Listing } from '@/db';
 
 /** The kernel overwrites metadata.amount/currency from Stripe; sellerDid is top-level attestation. */
@@ -20,9 +20,17 @@ export interface PaidNotification {
 }
 
 export class FulfillmentRejected extends Error {
-  constructor() {
-    super('Payment does not match a recorded checkout');
+  constructor(readonly code: 'PAYMENT_MISMATCH' | 'PAYMENT_ID_CONFLICT' = 'PAYMENT_MISMATCH') {
+    super(code === 'PAYMENT_ID_CONFLICT'
+      ? 'Payment ID is already claimed by another checkout'
+      : 'Payment does not match a recorded checkout');
   }
+}
+function isPaymentIdConflict(error: unknown): boolean {
+  if (error instanceof DrizzleQueryError) return isPaymentIdConflict(error.cause);
+  return error instanceof Error
+    && 'code' in error && error.code === '23505'
+    && 'constraint_name' in error && error.constraint_name === 'checkouts_payment_id_unique';
 }
 
 function requireMatch(condition: boolean): void {
@@ -80,5 +88,9 @@ export function claimPaidCheckout(body: PaidNotification): Promise<{ checkout: C
       updatedAt: new Date(),
     }).where(eq(listings.id, listing.id));
     return { checkout, listing };
+  }).catch((error: unknown) => {
+    // The transaction has rolled back before this translation; never leak SQL/parameters.
+    if (isPaymentIdConflict(error)) throw new FulfillmentRejected('PAYMENT_ID_CONFLICT');
+    throw error;
   });
 }

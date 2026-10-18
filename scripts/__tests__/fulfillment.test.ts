@@ -99,6 +99,9 @@ describe.skipIf(!config.url)('fulfillment binding against real Postgres (#30)', 
       claimPaidCheckout({ ...notification, sessionId: 'cs_2' }),
     ]);
     expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect(rejected).toMatchObject({ reason: { code: 'PAYMENT_ID_CONFLICT' } });
+    if (rejected?.status === 'rejected') expect(rejected.reason).toBeInstanceOf(FulfillmentRejected);
     expect(await stock()).toBe(8);
     const fulfilled = await db.select().from(checkouts);
     expect(fulfilled.filter((row) => row.fulfilledAt)).toHaveLength(1);
@@ -122,9 +125,17 @@ describe.skipIf(!config.url)('fulfillment binding against real Postgres (#30)', 
     await recordPendingCheckout('lst_2', 'cs_2', { ...ownership, transactionId: 'tx_2' });
     await expect(claimPaidCheckout({
       ...notification, sessionId: 'cs_2', metadata: { ...notification.metadata, listingId: 'lst_2' },
-    })).rejects.toThrow();
+    })).rejects.toMatchObject({ code: 'PAYMENT_ID_CONFLICT' });
     const [other] = await db.select().from(listings).where(eq(listings.id, 'lst_2'));
     expect(other.quantity).toBe(10);
+    const [unclaimed] = await db.select().from(checkouts).where(eq(checkouts.sessionId, 'cs_2'));
+    expect(unclaimed.paymentId).toBeNull();
+    expect(unclaimed.fulfilledAt).toBeNull();
+    // A different payment can safely retry the losing checkout.
+    expect(await claimPaidCheckout({
+      ...notification, sessionId: 'cs_2', paymentId: 'pi_2',
+      metadata: { ...notification.metadata, listingId: 'lst_2' },
+    })).not.toBeNull();
   });
 
   it('rolls the payment claim back when inventory fails, allowing a safe retry', async () => {

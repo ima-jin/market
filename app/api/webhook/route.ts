@@ -89,7 +89,18 @@ export async function POST(request: NextRequest) {
     if (isPaymentSuccess(body)) await processSuccessfulPayment(body);
     return jsonResponse({ received: true });
   } catch (error) {
-    if (error instanceof FulfillmentRejected) return errorResponse(error.message, 400);
+    if (error instanceof FulfillmentRejected) {
+      log.warn({
+        sessionId: body.sessionId,
+        paymentId: body.paymentId,
+        listingId: body.metadata?.listingId,
+        reason: error.code,
+      }, 'paid notification refused');
+      if (error.code === 'PAYMENT_ID_CONFLICT') {
+        return jsonResponse({ error: error.message, code: error.code }, 409);
+      }
+      return errorResponse(error.message, 400);
+    }
     log.error({ err: String(error) }, 'Webhook error');
     return errorResponse('Webhook processing failed', 500);
   }

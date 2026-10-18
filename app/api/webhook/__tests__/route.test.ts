@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalKernelWebhookPayload } from '@ima-jin/auth/kernel-webhook';
 import { createLogger } from '@ima-jin/logger';
+import { DrizzleQueryError } from 'drizzle-orm';
 
 const mocks = vi.hoisted(() => ({ emitEvent: vi.fn(), settleListingPurchase: vi.fn(), recordByoSettlement: vi.fn() }));
 
@@ -271,6 +272,64 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
     dbState.queue([]);
     expect((await hook({ ...PAID, rail })).status).toBe(400);
     expectNoFulfillment();
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith({
+      sessionId: PAID.sessionId, paymentId: PAID.paymentId, listingId: PAID.metadata.listingId,
+      reason: 'PAYMENT_MISMATCH',
+    }, 'paid notification refused');
+  });
+
+  it.each([
+    { sessionId: undefined },
+    { paymentId: undefined },
+    { metadata: undefined },
+  ])('logs only available identifiers for incomplete paid notifications: %j', async (override) => {
+    dbState.queue([CHECKOUT]);
+    const body = { ...PAID, ...override, secret: 'FAKE_NOT_FOR_LOGGING' };
+    expect((await hook(body)).status).toBe(400);
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith({
+      sessionId: body.sessionId, paymentId: body.paymentId, listingId: body.metadata?.listingId,
+      reason: 'PAYMENT_MISMATCH',
+    }, 'paid notification refused');
+    expect(log.error).not.toHaveBeenCalled();
+    expectNoFulfillment();
+  });
+
+  function uniqueViolation(constraint = 'checkouts_payment_id_unique', code = '23505') {
+    return Object.assign(new Error('FAKE_DATABASE_DETAILS_NOT_FOR_LOGGING'), { code, constraint_name: constraint });
+  }
+
+  it.each([false, true])('returns a clear 409 for cross-session payment reuse (wrapped: %s)', async (wrapped) => {
+    const cause = uniqueViolation();
+    const error = wrapped ? new DrizzleQueryError('update checkouts', ['FAKE_SQL_PARAMETER'], cause) : cause;
+    dbState.queue([CHECKOUT], [LISTING], error);
+    const response = await hook({ ...PAID, rail: 'stripe-byo' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'Payment ID is already claimed by another checkout', code: 'PAYMENT_ID_CONFLICT',
+    });
+    expect(dbState.argsOf('set', 'update')).toHaveLength(1); // claim attempted, inventory untouched
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith({
+      sessionId: PAID.sessionId, paymentId: PAID.paymentId, listingId: PAID.metadata.listingId,
+      reason: 'PAYMENT_ID_CONFLICT',
+    }, 'paid notification refused');
+    expect(log.error).not.toHaveBeenCalled();
+    expect(mocks.emitEvent).not.toHaveBeenCalled();
+    expect(mocks.recordByoSettlement).not.toHaveBeenCalled();
+    expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    uniqueViolation('checkouts_transaction_id_unique'),
+    uniqueViolation('checkouts_payment_id_unique', '23514'),
+    new Error('database unavailable'),
+  ])('does not misclassify other database failures as payment conflicts (%#)', async (error) => {
+    dbState.queue([CHECKOUT], [LISTING], error);
+    expect((await hook(PAID)).status).toBe(500);
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(mocks.emitEvent).not.toHaveBeenCalled();
   });
 
   it.each([
