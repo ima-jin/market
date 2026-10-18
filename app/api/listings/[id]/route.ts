@@ -81,6 +81,9 @@ export async function PATCH(request: NextRequest, props: RouteProps) {
     }
 
     const body = await request.json();
+    if (body.currency !== undefined && typeof body.currency !== 'string') {
+      return jsonResponse({ error: 'currency must be a string', code: 'INVALID_CURRENCY' }, 400);
+    }
     const { price, sellerTier, images, status } = body;
 
     // Validate status transition

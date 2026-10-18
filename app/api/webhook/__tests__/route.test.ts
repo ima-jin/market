@@ -347,9 +347,72 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
     dbState.queue([CHECKOUT], [LISTING], error);
     expect((await hook(PAID)).status).toBe(500);
     expect(log.warn).not.toHaveBeenCalled();
-    expect(log.error).toHaveBeenCalledWith({ reason: 'PROCESSING_FAILED' }, 'Webhook error');
+    expect(log.error).toHaveBeenCalledWith({
+      reason: 'PROCESSING_FAILED', name: 'Error',
+      code: 'code' in error ? error.code : undefined,
+      constraint: 'constraint_name' in error ? error.constraint_name : undefined,
+    }, 'Webhook error');
     expect(mocks.emitEvent).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])('logs only safe driver error scalars on 500 (wrapped: %s)', async (wrapped) => {
+    const cause = Object.assign(uniqueViolation('checkouts_transaction_id_unique'), {
+      name: 'PostgresError',
+      detail: 'FAKE_PRIVATE_DB_DETAIL',
+      payload: PAID,
+    });
+    const error = wrapped ? new DrizzleQueryError('FAKE_PRIVATE_SQL', ['FAKE_PRIVATE_PARAMETER'], cause) : cause;
+    dbState.queue([CHECKOUT], [LISTING], error);
+
+    const response = await hook({ ...PAID, secret: 'FAKE_PRIVATE_WEBHOOK_VALUE' });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'Webhook processing failed' });
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error).toHaveBeenCalledWith({
+      reason: 'PROCESSING_FAILED', name: 'PostgresError', code: '23505',
+      constraint: 'checkouts_transaction_id_unique',
+    }, 'Webhook error');
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(mocks.emitEvent).not.toHaveBeenCalled();
+  });
+
+  it('accepts the standard constraint field without serializing other error properties', async () => {
+    const error = Object.assign(new Error('FAKE_PRIVATE_MESSAGE'), {
+      code: '23514', constraint: 'checkouts_amount_check', params: ['FAKE_PRIVATE_PARAMETER'],
+    });
+    dbState.queue(error);
+
+    expect((await hook(PAID)).status).toBe(500);
+    expect(log.error).toHaveBeenCalledWith({
+      reason: 'PROCESSING_FAILED', name: 'Error', code: '23514', constraint: 'checkouts_amount_check',
+    }, 'Webhook error');
+  });
+
+  it.each([null, 42, { privateValue: 'FAKE_PRIVATE_VALUE' }, 'not an identifier', 'line\nbreak', 'x'.repeat(129)])(
+    'omits non-scalar or unsafe error fields (%#)', async (value) => {
+      const error = Object.assign(new Error('FAKE_PRIVATE_MESSAGE'), {
+        name: value, code: value, constraint_name: value,
+      });
+      dbState.queue([CHECKOUT], [LISTING], error);
+
+      expect((await hook(PAID)).status).toBe(500);
+      expect(log.error).toHaveBeenCalledWith({
+        reason: 'PROCESSING_FAILED', name: undefined, code: undefined, constraint: undefined,
+      }, 'Webhook error');
+    },
+  );
+
+  it.each([null, 'FAKE_PRIVATE_THROWN_VALUE', { code: 'FAKE_PRIVATE_VALUE' }])(
+    'does not serialize non-Error throws (%#)', async (error) => {
+      queuePurchase();
+      mocks.recordByoSettlement.mockRejectedValueOnce(error);
+
+      expect((await hook({ ...PAID, rail: 'stripe-byo' })).status).toBe(500);
+      expect(log.error).toHaveBeenCalledWith({ reason: 'PROCESSING_FAILED' }, 'Webhook error');
+      expect(mocks.emitEvent).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     { quantity: 0 }, { quantity: -1 }, { quantity: 1.5 }, { quantity: 2 },

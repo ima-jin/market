@@ -71,6 +71,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
+    if (body.currency !== undefined && typeof body.currency !== 'string') {
+      return jsonResponse({ error: 'currency must be a string', code: 'INVALID_CURRENCY' }, 400);
+    }
 
     const validationError = validateCreateBody(body);
     if (validationError) {

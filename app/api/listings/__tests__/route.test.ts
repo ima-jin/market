@@ -174,6 +174,16 @@ describe('POST /api/listings', () => {
     expect(values.currency).toBe('CAD');
   });
 
+  it.each([null, 0, 123, false, true, {}, [], ['CAD']])('rejects non-string currency %j before side effects', async (currency) => {
+    const res = await post({ ...VALID, currency });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'currency must be a string', code: 'INVALID_CURRENCY' });
+    expect(dbState.calls).toHaveLength(0);
+    expect(mocks.fetchNodeSelf).not.toHaveBeenCalled();
+    expect(mocks.getAppServiceToken).not.toHaveBeenCalled();
+  });
+
   it('honours every optional field the caller supplies', async () => {
     dbState.queue([{ id: 'lst_1', currency: 'USD' }]);
 
