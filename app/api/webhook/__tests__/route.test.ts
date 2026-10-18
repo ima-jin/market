@@ -14,8 +14,6 @@ vi.mock('@/lib/settle', () => ({
   settleListingPurchase: mocks.settleListingPurchase,
   recordByoSettlement: mocks.recordByoSettlement,
 }));
-// The real pending-checkout reader: the recorded entry is looked up exactly as in production.
-vi.mock('@/lib/pending-checkout', async () => import('../../../../src/lib/pending-checkout'));
 
 import { dbState } from '../../../../test/helpers/db-mock';
 import { POST } from '../route';
@@ -89,6 +87,9 @@ function expectNoSideEffects() {
 
 const PAID = {
   type: 'payment.succeeded',
+  sessionId: 'cs_test_1',
+  paymentId: 'pi_test_1',
+  sellerDid: 'did:imajin:seller',
   metadata: { listingId: 'lst_1', buyerDid: 'did:imajin:buyer', amount: 5000, currency: 'CAD' },
 };
 
@@ -96,13 +97,27 @@ const LISTING = {
   id: 'lst_1',
   sellerDid: 'did:imajin:seller',
   quantity: 1,
+  price: 5000,
+  currency: 'CAD',
   status: 'active',
   fairManifest: { chain: [] },
 };
 
-function setValues() {
-  return dbState.argsOf('set', 'update')[0][0] as Record<string, unknown>;
+const CHECKOUT = {
+  sessionId: 'cs_test_1', transactionId: 'tx_abc', paymentId: null,
+  listingId: 'lst_1', sellerDid: LISTING.sellerDid, buyerDid: 'did:imajin:buyer',
+  quantity: 1, unitPrice: 5000, amountCents: 5000, currency: 'CAD', chain: [],
+  createdAt: new Date('2026-10-18T12:00:00Z'), fulfilledAt: null,
+};
+
+function queuePurchase(listing: Record<string, unknown> = LISTING, checkout: Record<string, unknown> = CHECKOUT) {
+  dbState.queue([checkout], [listing], undefined, undefined);
 }
+
+function setValues() {
+  return dbState.argsOf('set', 'update')[1][0] as Record<string, unknown>;
+}
+
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -125,7 +140,7 @@ describe('POST /api/webhook — authorization', () => {
   }
 
   it('accepts and processes a kernel-signed payment without a shared callback credential', async () => {
-    dbState.queue([LISTING], undefined);
+    queuePurchase();
     const response = await hook(PAID);
     expect(response.status).toBe(200);
     expect(setValues()).toMatchObject({ status: 'sold' });
@@ -189,7 +204,7 @@ describe('POST /api/webhook — authorization', () => {
   });
 
   it('rejects replay without repeating business side effects', async () => {
-    dbState.queue([LISTING], undefined);
+    queuePurchase();
     const request = signedRequest(PAID);
     const replay = request.clone() as Parameters<typeof POST>[0];
     expect((await POST(request)).status).toBe(200);
@@ -244,296 +259,163 @@ describe('POST /api/webhook — authorization', () => {
   });
 });
 
-describe('POST /api/webhook — payment handling', () => {
-
-  it.each([
-    [{ type: 'payment.succeeded' }],
-    [{ status: 'paid' }],
-    [{ status: 'succeeded' }],
-  ])('treats %j as a successful payment', async (marker) => {
-    dbState.reset();
-    dbState.queue([LISTING], undefined);
-
-    await hook({ ...marker, metadata: PAID.metadata });
-
-    expect(setValues()).toMatchObject({ status: 'sold' });
-  });
-
-  it('acknowledges but ignores other events', async () => {
-    const res = await hook({ type: 'payment.failed', metadata: PAID.metadata });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ received: true });
-    expect(dbState.calls).toHaveLength(0);
-    expect(mocks.emitEvent).not.toHaveBeenCalled();
-  });
-
-  it('acknowledges a payment with no listingId without touching the database', async () => {
-    const res = await hook({ type: 'payment.succeeded', metadata: {} });
-
-    expect(res.status).toBe(200);
-    expect(dbState.calls).toHaveLength(0);
-  });
-
-  it('acknowledges a payment for an unknown listing without updating anything', async () => {
-    dbState.queue([]);
-
-    const res = await hook(PAID);
-
-    expect(res.status).toBe(200);
+describe('POST /api/webhook — bound fulfillment (#30)', () => {
+  function expectNoFulfillment() {
     expect(dbState.argsOf('set', 'update')).toHaveLength(0);
     expect(mocks.emitEvent).not.toHaveBeenCalled();
-  });
-
-  it('marks a single-quantity listing sold', async () => {
-    dbState.queue([{ ...LISTING, quantity: 1 }], undefined);
-
-    await hook(PAID);
-
-    expect(setValues()).toMatchObject({ status: 'sold' });
-    expect(setValues().quantity).toBeUndefined();
-  });
-
-  it('marks an unlimited-quantity (null) listing sold', async () => {
-    dbState.queue([{ ...LISTING, quantity: null }], undefined);
-
-    await hook(PAID);
-
-    expect(setValues()).toMatchObject({ status: 'sold' });
-  });
-
-  it('decrements a multi-quantity listing and keeps its status while stock remains', async () => {
-    dbState.queue([{ ...LISTING, quantity: 3, status: 'active' }], undefined);
-
-    await hook(PAID);
-
-    expect(setValues()).toMatchObject({ quantity: 2, status: 'active' });
-  });
-
-  it('emits listing.purchased with the buyer, seller and manifest', async () => {
-    dbState.queue([LISTING], undefined);
-
-    await hook(PAID);
-
-    expect(mocks.emitEvent).toHaveBeenCalledWith('listing.purchased', {
-      issuer: 'did:imajin:buyer',
-      subject: 'did:imajin:seller',
-      scope: 'market',
-      payload: {
-        context_id: 'lst_1',
-        context_type: 'market',
-        amount: 5000,
-        currency: 'CAD',
-        fairManifest: { chain: [] },
-        funded: true,
-        funded_provider: 'stripe',
-        buyerDid: 'did:imajin:buyer',
-        metadata: { listingId: 'lst_1' },
-        interestDids: ['did:imajin:buyer', 'did:imajin:seller'],
-      },
-    });
-  });
-
-  it('defaults the event for an anonymous buyer with no amount/currency', async () => {
-    dbState.queue([{ ...LISTING, fairManifest: null }], undefined);
-
-    await hook({ type: 'payment.succeeded', metadata: { listingId: 'lst_1' } });
-
-    expect(mocks.emitEvent).toHaveBeenCalledWith(
-      'listing.purchased',
-      expect.objectContaining({
-        issuer: '',
-        payload: expect.objectContaining({
-          amount: 0,
-          currency: 'CAD',
-          fairManifest: null,
-          buyerDid: '',
-          interestDids: ['did:imajin:seller'],
-        }),
-      })
-    );
-  });
-
-  it('returns 500 when processing fails', async () => {
-    dbState.queue(new Error('db down'));
-
-    const res = await hook(PAID);
-
-    expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ error: 'Webhook processing failed' });
-  });
-
-  it('returns 400 on a signed unparseable body', async () => {
-    expect((await hook('{nope')).status).toBe(400);
-  });
-});
-
-describe('POST /api/webhook — settlement (#2740)', () => {
-  const SESSION_ID = 'cs_test_1';
-  const FAIR_MANIFEST = { version: '1.0', chain: [{ did: 'did:imajin:seller', role: 'seller', share: 1 }] };
-  const PENDING = {
-    transactionId: 'tx_abc',
-    amountCents: 5000,
-    chain: [{ did: 'did:imajin:seller', role: 'seller', amount: 50 }],
-    at: '2026-10-08T12:00:00.000Z',
-  };
-
-  function settlable(overrides: Record<string, unknown> = {}) {
-    return {
-      ...LISTING,
-      currency: 'CAD',
-      fairManifest: FAIR_MANIFEST,
-      metadata: { pendingCheckouts: { [SESSION_ID]: PENDING } },
-      ...overrides,
-    };
+    expect(mocks.recordByoSettlement).not.toHaveBeenCalled();
+    expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
   }
 
-  const paid = (overrides: Record<string, unknown> = {}) => ({ ...PAID, sessionId: SESSION_ID, ...overrides });
-
-  beforeEach(() => {
-    mocks.settleListingPurchase.mockResolvedValue(undefined);
+  it.each(['stripe-byo', undefined])('requires recorded checkout ownership on rail %s', async (rail) => {
+    dbState.queue([]);
+    expect((await hook({ ...PAID, rail })).status).toBe(400);
+    expectNoFulfillment();
   });
 
-  it('settles a paid purchase with the checkout recorded for its Stripe session', async () => {
-    dbState.queue([settlable()], undefined);
+  it.each([
+    { quantity: 0 }, { quantity: -1 }, { quantity: 1.5 }, { quantity: 2 },
+    { unitPrice: 1 }, { amountCents: 1 },
+  ])('refuses an inconsistent recorded quantity or DB-derived total: %j', async (override) => {
+    dbState.queue([{ ...CHECKOUT, ...override }], [LISTING]);
+    const amount = override.amountCents ?? PAID.metadata.amount;
+    expect((await hook({ ...PAID, metadata: { ...PAID.metadata, amount } })).status).toBe(400);
+    expectNoFulfillment();
+  });
 
-    const res = await hook(paid());
+  const invalidNotifications = [
+    { label: 'wrong attested seller', sellerDid: 'did:imajin:attacker' },
+    { label: 'missing attested seller', sellerDid: undefined },
+    { label: 'missing session', sessionId: undefined },
+    { label: 'metadata-only session', sessionId: undefined, metadata: { ...PAID.metadata, sessionId: CHECKOUT.sessionId } },
+    { label: 'missing payment id', paymentId: undefined },
+    { label: 'wrong listing', metadata: { ...PAID.metadata, listingId: 'lst_victim' } },
+    { label: 'missing listing', metadata: { ...PAID.metadata, listingId: undefined } },
+    { label: 'underpayment', metadata: { ...PAID.metadata, amount: 1 } },
+    { label: 'overpayment', metadata: { ...PAID.metadata, amount: 5001 } },
+    { label: 'missing amount', metadata: { ...PAID.metadata, amount: undefined } },
+    { label: 'string amount', metadata: { ...PAID.metadata, amount: '5000' } },
+    { label: 'wrong currency', metadata: { ...PAID.metadata, currency: 'USD' } },
+    { label: 'missing currency', metadata: { ...PAID.metadata, currency: undefined } },
+    { label: 'changed buyer', metadata: { ...PAID.metadata, buyerDid: 'did:imajin:attacker' } },
+    { label: 'missing recorded buyer', metadata: { ...PAID.metadata, buyerDid: undefined } },
+    { label: 'conflicting session', metadata: { ...PAID.metadata, sessionId: 'cs_other' } },
+    { label: 'conflicting seller metadata', metadata: { ...PAID.metadata, sellerDid: 'did:imajin:attacker' } },
+  ];
 
-    expect(res.status).toBe(200);
-    expect(setValues()).toMatchObject({ status: 'sold' });
-    expect(mocks.emitEvent).toHaveBeenCalledWith('listing.purchased', expect.objectContaining({ scope: 'market' }));
-    expect(mocks.settleListingPurchase).toHaveBeenCalledTimes(1);
-    expect(mocks.settleListingPurchase).toHaveBeenCalledWith({
-      listingId: 'lst_1',
-      sessionId: SESSION_ID,
-      pending: PENDING,
-      currency: 'CAD',
-      fairManifest: FAIR_MANIFEST,
+  describe.each(['stripe-byo', undefined])('refusals on rail %s', (rail) => {
+    it.each(invalidNotifications)('rejects $label before any fulfillment side effect', async (override) => {
+      dbState.queue([CHECKOUT], [LISTING]);
+      expect((await hook({ ...PAID, rail, ...override })).status).toBe(400);
+      expectNoFulfillment();
+    });
+
+    it.each([
+      { label: 'changed DB seller', sellerDid: 'did:imajin:other' },
+      { label: 'changed DB price', price: 6000 },
+      { label: 'changed DB currency', currency: 'USD' },
+      { label: 'missing DB currency', currency: null },
+      { label: 'insufficient stock', quantity: 0 },
+      { label: 'unavailable listing', status: 'sold' },
+    ])('rejects $label', async (override) => {
+      dbState.queue([CHECKOUT], [{ ...LISTING, ...override }]);
+      expect((await hook({ ...PAID, rail })).status).toBe(400);
+      expectNoFulfillment();
     });
   });
 
-  it('finds the session id in metadata and falls back to the listing currency, then CAD', async () => {
-    dbState.queue([settlable({ currency: 'USD' })], undefined);
-    await hook(
-      paid({ sessionId: undefined, metadata: { listingId: 'lst_1', buyerDid: 'did:imajin:buyer', sessionId: SESSION_ID } })
-    );
-    expect(mocks.settleListingPurchase).toHaveBeenLastCalledWith(
-      expect.objectContaining({ sessionId: SESSION_ID, currency: 'USD' })
-    );
-
-    dbState.reset();
-    dbState.queue([settlable({ currency: null })], undefined);
-    await hook(paid({ metadata: { listingId: 'lst_1' } }));
-    expect(mocks.settleListingPurchase).toHaveBeenLastCalledWith(expect.objectContaining({ currency: 'CAD' }));
+  it.each(['type', 'paid', 'succeeded'])('accepts supported payment success marker %s', async (marker) => {
+    queuePurchase();
+    const body = marker === 'type' ? PAID : { ...PAID, type: undefined, status: marker };
+    expect((await hook(body)).status).toBe(200);
+    expect(setValues()).toMatchObject({ status: 'sold', quantity: 0 });
   });
 
-  it('does not settle when the webhook carries no Stripe session id', async () => {
-    dbState.queue([settlable()], undefined);
-
-    const res = await hook(paid({ sessionId: undefined }));
-
-    expect(res.status).toBe(200);
-    expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
+  it('acknowledges non-payment events without any database access', async () => {
+    expect((await hook({ ...PAID, type: 'payment.failed' })).status).toBe(200);
+    expectNoSideEffects();
   });
 
-  it('does not settle when no checkout was recorded for the session (e.g. a replay after settling)', async () => {
-    dbState.queue([settlable({ metadata: { pendingCheckouts: {} } })], undefined);
-
-    const res = await hook(paid());
-
-    expect(res.status).toBe(200);
-    expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
+  it('rejects signed non-object bodies', async () => {
+    for (const body of [null, 123, 'null']) {
+      expect((await hook(body)).status).toBe(400);
+    }
+    expectNoFulfillment();
   });
 
-  it('skips settlement for a listing without a .fair manifest chain', async () => {
-    dbState.queue([settlable({ fairManifest: null })], undefined);
-    await hook(paid());
-    expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
-
-    dbState.reset();
-    dbState.queue([settlable({ fairManifest: { version: '1.0', chain: [] } })], undefined);
-    await hook(paid());
-    expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
+  it('refuses an unknown listing even with a recorded checkout', async () => {
+    dbState.queue([CHECKOUT], []);
+    expect((await hook(PAID)).status).toBe(400);
+    expectNoFulfillment();
   });
 
-  it('does not settle a payment that did not succeed', async () => {
-    const res = await hook({ ...paid(), type: 'payment.failed' });
-
-    expect(res.status).toBe(200);
+  it('records valid BYO without a .fair chain and never calls platform settlement', async () => {
+    queuePurchase({ ...LISTING, fairManifest: null });
+    expect((await hook({ ...PAID, rail: 'stripe-byo' })).status).toBe(200);
+    expect(setValues()).toMatchObject({ quantity: 0, status: 'sold' });
+    expect(mocks.recordByoSettlement).toHaveBeenCalledWith({
+      listingId: LISTING.id, sessionId: CHECKOUT.sessionId,
+      amountCents: 5000, currency: 'CAD', fairManifest: null,
+    });
     expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
+    expect(mocks.emitEvent).toHaveBeenCalledWith('listing.purchased', expect.objectContaining({
+      issuer: CHECKOUT.buyerDid, subject: CHECKOUT.sellerDid,
+      payload: expect.objectContaining({ amount: 5000, currency: 'CAD', funded: true, buyerDid: CHECKOUT.buyerDid }),
+    }));
   });
 
-  it('decrements a multi-quantity listing and still settles', async () => {
-    dbState.queue([settlable({ quantity: 3 })], undefined);
-
-    await hook(paid());
-
+  it('uses the recorded quantity, not caller metadata, to decrement stock', async () => {
+    queuePurchase({ ...LISTING, quantity: 5 }, { ...CHECKOUT, quantity: 3, amountCents: 15000 });
+    expect((await hook({ ...PAID, rail: 'stripe-byo', metadata: { ...PAID.metadata, amount: 15000, quantity: 1 } })).status).toBe(200);
     expect(setValues()).toMatchObject({ quantity: 2, status: 'active' });
-    expect(mocks.settleListingPurchase).toHaveBeenCalledTimes(1);
+    expect(mocks.recordByoSettlement).toHaveBeenCalledWith(expect.objectContaining({ amountCents: 15000 }));
   });
 
-  describe('paid on the seller\'s own Stripe account (#2773)', () => {
-    const byo = (overrides: Record<string, unknown> = {}) => paid({ rail: 'stripe-byo', ...overrides });
+  it('keeps unlimited listings available', async () => {
+    dbState.queue([CHECKOUT], [{ ...LISTING, quantity: null }], undefined, undefined);
+    expect((await hook(PAID)).status).toBe(200);
+    expect(setValues()).toMatchObject({ quantity: null, status: 'active' });
+  });
 
-    beforeEach(() => {
-      mocks.recordByoSettlement.mockResolvedValue(undefined);
+  it('uses the server-recorded anonymous buyer', async () => {
+    queuePurchase(LISTING, { ...CHECKOUT, buyerDid: '' });
+    expect((await hook({ ...PAID, metadata: { ...PAID.metadata, buyerDid: undefined } })).status).toBe(200);
+    expect(mocks.emitEvent).toHaveBeenCalledWith('listing.purchased', expect.objectContaining({
+      issuer: '', payload: expect.objectContaining({ buyerDid: '', interestDids: [LISTING.sellerDid] }),
+    }));
+  });
+
+  it('settles a platform-collected checkout with its recorded transaction and payee chain', async () => {
+    const chain = [{ did: LISTING.sellerDid, role: 'seller', amount: 50 }];
+    queuePurchase(LISTING, { ...CHECKOUT, chain });
+    expect((await hook(PAID)).status).toBe(200);
+    expect(mocks.settleListingPurchase).toHaveBeenCalledWith({
+      listingId: LISTING.id, sessionId: CHECKOUT.sessionId, currency: 'CAD', fairManifest: LISTING.fairManifest,
+      pending: { transactionId: CHECKOUT.transactionId, amountCents: 5000, chain, at: CHECKOUT.createdAt.toISOString() },
     });
+    expect(mocks.recordByoSettlement).not.toHaveBeenCalled();
+  });
 
-    it('treats the kernel notification as the settlement: records it and never calls /pay/api/settle', async () => {
-      dbState.queue([settlable()], undefined);
+  it('deduplicates a freshly signed redelivery with a different nonce', async () => {
+    queuePurchase();
+    expect((await hook({ ...PAID, rail: 'stripe-byo' })).status).toBe(200);
+    dbState.queue([{ ...CHECKOUT, paymentId: PAID.paymentId, fulfilledAt: new Date() }]);
+    expect((await hook({ ...PAID, rail: 'stripe-byo' })).status).toBe(200);
+    expect(dbState.argsOf('set', 'update')).toHaveLength(2);
+    expect(mocks.emitEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.recordByoSettlement).toHaveBeenCalledTimes(1);
+  });
 
-      const res = await hook(byo());
+  it('rejects a different payment id against an already fulfilled session', async () => {
+    dbState.queue([{ ...CHECKOUT, paymentId: 'pi_other', fulfilledAt: new Date() }]);
+    expect((await hook(PAID)).status).toBe(400);
+    expectNoFulfillment();
+  });
 
-      expect(res.status).toBe(200);
-      expect(setValues()).toMatchObject({ status: 'sold' });
-      expect(mocks.emitEvent).toHaveBeenCalledWith('listing.purchased', expect.objectContaining({ scope: 'market' }));
-      expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
-      expect(mocks.recordByoSettlement).toHaveBeenCalledWith({
-        listingId: 'lst_1',
-        sessionId: SESSION_ID,
-        amountCents: 5000,
-        currency: 'CAD',
-        fairManifest: FAIR_MANIFEST,
-      });
-    });
-
-    it('records the receipt even for a listing with no .fair chain or no recorded pending checkout', async () => {
-      dbState.queue([settlable({ fairManifest: null, metadata: {} })], undefined);
-
-      await hook(byo());
-
-      expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
-      expect(mocks.recordByoSettlement).toHaveBeenCalledWith(expect.objectContaining({ fairManifest: null }));
-    });
-
-    it('falls back to the recorded amount, then 0, when the webhook carries none', async () => {
-      dbState.queue([settlable()], undefined);
-      await hook(byo({ metadata: { listingId: 'lst_1' } }));
-      expect(mocks.recordByoSettlement).toHaveBeenLastCalledWith(expect.objectContaining({ amountCents: 5000 }));
-
-      dbState.reset();
-      dbState.queue([settlable({ metadata: {} })], undefined);
-      await hook(byo({ metadata: { listingId: 'lst_1' } }));
-      expect(mocks.recordByoSettlement).toHaveBeenLastCalledWith(expect.objectContaining({ amountCents: 0 }));
-    });
-
-    it('records nothing when the webhook carries no Stripe session id', async () => {
-      dbState.queue([settlable()], undefined);
-
-      const res = await hook(byo({ sessionId: undefined }));
-
-      expect(res.status).toBe(200);
-      expect(mocks.recordByoSettlement).not.toHaveBeenCalled();
-      expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
-    });
-
-    it('still settles a platform-collected payment (no rail) through /pay/api/settle', async () => {
-      dbState.queue([settlable()], undefined);
-
-      await hook(paid());
-
-      expect(mocks.settleListingPurchase).toHaveBeenCalledTimes(1);
-      expect(mocks.recordByoSettlement).not.toHaveBeenCalled();
-    });
+  it('does not emit or record a receipt if the atomic inventory transaction fails', async () => {
+    dbState.queue([CHECKOUT], [LISTING], undefined, new Error('db down'));
+    expect((await hook({ ...PAID, rail: 'stripe-byo' })).status).toBe(500);
+    expect(mocks.emitEvent).not.toHaveBeenCalled();
+    expect(mocks.recordByoSettlement).not.toHaveBeenCalled();
   });
 });

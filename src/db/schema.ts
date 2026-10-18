@@ -1,4 +1,5 @@
 import { boolean, index, integer, jsonb, pgSchema, text, timestamp } from 'drizzle-orm/pg-core';
+import type { PayeeChainEntry } from '@/lib/pending-checkout';
 
 /**
  * This app owns exactly one Postgres schema, named by APP_DB_SCHEMA (`market`
@@ -81,6 +82,25 @@ export const sellerSettings = appSchema.table('seller_settings', {
 });
 
 export type Listing = typeof listings.$inferSelect;
+
+/** Server-only checkout ownership and permanent fulfillment deduplication; never listing metadata. */
+export const checkouts = appSchema.table('checkouts', {
+  sessionId: text('session_id').primaryKey(),
+  transactionId: text('transaction_id').notNull().unique(),
+  paymentId: text('payment_id').unique(),
+  listingId: text('listing_id').notNull().references(() => listings.id),
+  sellerDid: text('seller_did').notNull(),
+  buyerDid: text('buyer_did').notNull(),
+  quantity: integer('quantity').notNull(),
+  unitPrice: integer('unit_price').notNull(),
+  amountCents: integer('amount_cents').notNull(),
+  currency: text('currency').notNull(),
+  chain: jsonb('chain').$type<PayeeChainEntry[]>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  fulfilledAt: timestamp('fulfilled_at', { withTimezone: true }),
+});
+
+export type Checkout = typeof checkouts.$inferSelect;
 export type NewListing = typeof listings.$inferInsert;
 export type Dispute = typeof disputes.$inferSelect;
 export type NewDispute = typeof disputes.$inferInsert;

@@ -208,7 +208,7 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
   Ownership is enforced by this app: a listing's `sellerDid` must equal the caller's DID.
 - **Domain:** _TBD_
 - **Database:** Postgres schema `market` (`APP_DB_SCHEMA=market`), owned by this app via `migrations/`. Tables:
-  `listings`, `disputes`, `seller_settings`.
+  `listings`, `disputes`, `seller_settings`, `checkouts`.
 - **The real-world loop it instruments:** seller lists an item or service → buyer purchases (settled via the kernel) →
   disputes are resolved if the sale goes wrong.
 - **Domain events it emits (via kernel API):** `listing.created`, `listing.updated`, `listing.purchased` — all through
@@ -218,7 +218,7 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
   and non-fatal to user requests. Settlement does not depend on it: market settles its own purchases through
   pay's registered-app contract — it mints its own app-service token (`src/lib/app-token.ts`), checks out with a
   declared payee chain (`src/lib/settle.ts`), remembers the kernel payment per Stripe session
-  (`src/lib/pending-checkout.ts`, in `listings.metadata`), and settles from `POST /api/webhook`, which verifies kernel Ed25519 signatures
+  (`src/lib/pending-checkout.ts`, in the server-only `checkouts` ledger), and settles from `POST /api/webhook`, which verifies kernel Ed25519 signatures
   with `verifyKernelWebhook` bound to `IMAJIN_APP_DID` before any business processing. Card payments are charged on the seller's OWN Stripe account (no Stripe
   Connect): a payment the kernel already settled there arrives with `rail: stripe-byo`, and that notification IS the
   settlement — the webhook records the receipt and never calls `/pay/api/settle` (which refuses such a payment). A
@@ -231,3 +231,4 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
   small file (`src/lib/media.ts`, `src/components/OnboardGate.tsx`) with the gap issue
   in its header, so it can be deleted when the package ships. Known kernel-side gaps that change behaviour:
   acting-as-scope (#2639) and identity tier for `trust_gated` purchases (#2640).
+

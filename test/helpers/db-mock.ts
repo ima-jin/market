@@ -24,6 +24,7 @@ const CHAIN_METHODS = [
   'values',
   'returning',
   'onConflictDoUpdate',
+  'for',
 ] as const;
 
 export interface RecordedCall {
@@ -50,10 +51,15 @@ function makeChain(op: RecordedCall['op']): Chain {
   return chain;
 }
 
-export const mockDb = {
+const operations = {
   select: () => makeChain('select'),
   insert: () => makeChain('insert'),
   update: () => makeChain('update'),
+};
+
+export const mockDb = {
+  ...operations,
+  transaction: <T>(fn: (tx: typeof operations) => Promise<T>): Promise<T> => fn(operations),
 };
 
 export const dbState = {
