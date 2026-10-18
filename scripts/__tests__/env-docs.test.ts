@@ -49,6 +49,7 @@ describe('env contract coverage', () => {
     expect(pkg.dependencies['@ima-jin/auth-client']).toBe('0.8.24');
   });
 
+
   it('documents kernel-first and signed manifest Sync before upgrading each environment', () => {
     const runbook = read('docs/DEPLOY.md');
     expect(runbook).toContain('ima-jin/imajin-ai#2801');
@@ -198,6 +199,15 @@ describe('validateEnv', () => {
   const validDev = (overrides: Record<string, string> = {}) => filled('.env.dev.example', overrides);
   const errorsOf = (env: Record<string, string | undefined>, target: 'dev' | 'prod') =>
     validateEnv(env, target).errors.join('\n');
+
+  it('rejects migration test overrides and CI flags in server env files without echoing values', () => {
+    const errors = errorsOf(validProd({
+      MIGRATIONS_TEST_DATABASE_URL: 'FAKE_TEST_ONLY_DATABASE_LOCATOR', CI: 'true',
+    }), 'prod');
+    expect(errors).toContain('MIGRATIONS_TEST_DATABASE_URL must not be set');
+    expect(errors).toContain('CI must not be set');
+    expect(errors).not.toContain('FAKE_TEST_ONLY_DATABASE_LOCATOR');
+  });
 
   it('reports every missing required variable by name', () => {
     const { errors } = validateEnv({}, 'prod');

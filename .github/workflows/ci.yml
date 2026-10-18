@@ -205,7 +205,7 @@ jobs:
           --health-retries 10
     env:
       APP_DB_SCHEMA: market
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/market_ci
+      MIGRATIONS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/market_ci
     steps:
       - uses: actions/checkout@v4
 
@@ -231,8 +231,8 @@ jobs:
         run: node scripts/verify-migrations.mjs
 
       - name: Migration baseline tests (real Postgres)
-        # scripts/__tests__/migrate-baseline.test.ts skips itself without DATABASE_URL; here it
-        # runs against a prod-shaped schema in throwaway databases: idempotency, refusal on
+        # Baseline tests skip without the explicit test database override; here they
+        # run against a prod-shaped schema in throwaway databases: idempotency, refusal on
         # mismatch, and the never-drop/alter audit (docs/DEPLOY.md#migration-baseline).
         run: pnpm vitest run scripts/__tests__/migrate-baseline.test.ts
 

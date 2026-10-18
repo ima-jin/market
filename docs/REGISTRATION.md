@@ -78,7 +78,7 @@ Declare the database locator as name/kind-only `operator-supplied` in `imajin.ap
 For each environment, sync the manifest on `/jin`, then use **App secrets set/rotate**
 with **owner countersign** to supply `DATABASE_URL`. Sync alone creates no imported value.
 Never paste the value into commands, SSH sessions or env files. This is an operator step
-for the separately coordinated imajin-ai#2241 cutover, not performed by market#27.
+before runtime or deployment migrations; no value-handling action is performed by market#27.
 
 ## 4. Claim this app's own signing key (#7, #2427)
 

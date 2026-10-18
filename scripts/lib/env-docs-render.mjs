@@ -26,8 +26,10 @@ not the output of \`node scripts/gen-env-docs.mjs\`.
 No secret values live in this repo. Env holds only the keystore path, kernel URLs and non-secret config.
 The database locator and session signing material are fetched from the vault before server initialization
 and held in typed memory only ([REGISTRATION.md](./REGISTRATION.md)); neither is an env credential.
-Legacy migration tools accept env only for isolated CI databases. Do not use the existing deployment
-migration path on servers; its vault-aware cutover is coordinated separately in imajin-ai#2241.
+Baseline and programmatic migration entry points fetch the same database credential through
+keystore-authenticated encrypted vault fetch. Legacy database env input is never read.
+The explicit \`MIGRATIONS_TEST_DATABASE_URL\` override is only for isolated tests/CI;
+server env validation rejects it and deploy scrubs it from the caller's environment.
 
 ## The env files
 

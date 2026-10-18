@@ -20,7 +20,7 @@ const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../migrations', import.meta.
 const CLI = fileURLToPath(new URL('../migrate-baseline.mjs', import.meta.url));
 const BASELINE_SQL_FILE = `${MIGRATIONS_FOLDER}/0000_market_schema.sql`;
 const SCHEMA = 'market';
-// drizzle.config.ts keeps the tracking table inside the app schema.
+// The programmatic migrator keeps the tracking table inside the app schema.
 const TRACKING = `${SCHEMA}.__drizzle_migrations`;
 
 type RunnerSql = Parameters<typeof runBaseline>[0];
@@ -149,23 +149,24 @@ describe('migrate-baseline CLI (no database needed)', () => {
   it('exits 2 with usage on an unknown argument', () => {
     const result = cli(['--force']);
     expect(result.status).toBe(2);
-    expect(result.stderr).toMatch(/Unknown argument\(s\): --force/);
+    expect(result.stderr).toContain('Unknown argument(s). Usage: migrate-baseline.mjs');
   });
 
-  it('exits 2 when DATABASE_URL is not set', () => {
-    const result = cli([]);
+  it('exits 2 when vault credentials are unavailable, even with legacy env input', () => {
+    const result = cli([], { DATABASE_URL: 'FAKE_TEST_ONLY_LEGACY_INPUT_IGNORED' });
     expect(result.status).toBe(2);
-    expect(result.stderr).toMatch(/DATABASE_URL is not set/);
+    expect(result.stderr).toContain('Baseline failed: required vault credential, database or migration unavailable.');
   });
 
   it('exits 2 on an unsafe APP_DB_SCHEMA without echoing the connection string', () => {
     const result = cli([], {
-      DATABASE_URL: 'postgres://u:supersecretvalue@127.0.0.1:1/db',
+      MIGRATIONS_TEST_DATABASE_URL: 'FAKE_TEST_ONLY_DATABASE_LOCATOR',
+      NODE_ENV: 'test',
       APP_DB_SCHEMA: 'market; DROP SCHEMA market',
     });
     expect(result.status).toBe(2);
-    expect(result.stderr).toMatch(/APP_DB_SCHEMA must match/);
-    expect(result.stdout + result.stderr).not.toContain('supersecretvalue');
+    expect(result.stderr).toContain('Baseline failed: required vault credential, database or migration unavailable.');
+    expect(result.stdout + result.stderr).not.toContain('FAKE_TEST_ONLY_DATABASE_LOCATOR');
   });
 });
 
@@ -211,7 +212,7 @@ const PROD_LIKE_SCHEMA_SQL = [
      FOREIGN KEY (listing_id) REFERENCES market.listings(id)`,
 ];
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.MIGRATIONS_TEST_DATABASE_URL;
 
 describe.skipIf(!databaseUrl)('migrate-baseline against a real Postgres', () => {
   let admin: postgres.Sql;
@@ -487,7 +488,7 @@ describe.skipIf(!databaseUrl)('migrate-baseline against a real Postgres', () => 
   describe('CLI end to end', () => {
     const cli = (args: string[] = []) =>
       spawnSync(process.execPath, [CLI, ...args], {
-        env: childEnv({ DATABASE_URL: url, APP_DB_SCHEMA: SCHEMA }),
+        env: childEnv({ MIGRATIONS_TEST_DATABASE_URL: url, NODE_ENV: 'test', APP_DB_SCHEMA: SCHEMA }),
         encoding: 'utf8',
       });
 
@@ -507,7 +508,7 @@ describe.skipIf(!databaseUrl)('migrate-baseline against a real Postgres', () => 
       await sql.unsafe('ALTER TABLE market.listings DROP COLUMN description');
       const refused = cli();
       expect(refused.status).toBe(1);
-      expect(refused.stderr).toMatch(/listings\.description: column is missing/);
+      expect(refused.stderr).toContain('Refusing to baseline: schema or migration history mismatch.');
       expect(refused.stderr).toMatch(/Nothing was changed/);
       expect(await trackingRows()).toHaveLength(0);
       expect(refused.stdout + refused.stderr).not.toContain(url);
@@ -523,11 +524,14 @@ describe.skipIf(!databaseUrl)('migrate-baseline against a real Postgres', () => 
 
     it('exit 2 on a connection failure, without leaking the URL', () => {
       const result = spawnSync(process.execPath, [CLI], {
-        env: childEnv({ DATABASE_URL: 'postgres://u:supersecretvalue@127.0.0.1:1/db', APP_DB_SCHEMA: SCHEMA }),
+        env: childEnv({
+          MIGRATIONS_TEST_DATABASE_URL: 'postgres://127.0.0.1:1/FAKE_TEST_ONLY_DATABASE',
+          NODE_ENV: 'test', APP_DB_SCHEMA: SCHEMA,
+        }),
         encoding: 'utf8',
       });
       expect(result.status).toBe(2);
-      expect(result.stdout + result.stderr).not.toContain('supersecretvalue');
+      expect(result.stdout + result.stderr).not.toContain('FAKE_TEST_ONLY_DATABASE');
     });
   });
 });

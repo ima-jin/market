@@ -9,8 +9,10 @@ not the output of `node scripts/gen-env-docs.mjs`.
 No secret values live in this repo. Env holds only the keystore path, kernel URLs and non-secret config.
 The database locator and session signing material are fetched from the vault before server initialization
 and held in typed memory only ([REGISTRATION.md](./REGISTRATION.md)); neither is an env credential.
-Legacy migration tools accept env only for isolated CI databases. Do not use the existing deployment
-migration path on servers; its vault-aware cutover is coordinated separately in imajin-ai#2241.
+Baseline and programmatic migration entry points fetch the same database credential through
+keystore-authenticated encrypted vault fetch. Legacy database env input is never read.
+The explicit `MIGRATIONS_TEST_DATABASE_URL` override is only for isolated tests/CI;
+server env validation rejects it and deploy scrubs it from the caller's environment.
 
 ## The env files
 
@@ -90,7 +92,9 @@ a normal deploy handles it. Variables marked *runtime* are read when the process
 
 | Variable | When | Dev | Prod | Notes |
 |---|---|---|---|---|
-| `DATABASE_URL` (secret) | script | (vault only) | (vault only) | Runtime loads this app's own database locator through createVaultBoot, never env. Env input remains only for isolated CI migration tooling (drizzle-kit and scripts/migrate-baseline.mjs), not server env files. Server migration/cutover is coordinated separately in imajin-ai#2241. |
+| `DATABASE_URL` (secret) | script | (vault only) | (vault only) | Runtime and deployment migrations fetch this app's database locator from the vault into memory. Never read from env, including after vault failure. |
+| `MIGRATIONS_TEST_DATABASE_URL` (secret) | script | (never set) | (never set) | Explicit isolated-test database override, accepted only with NODE_ENV=test or CI=true (never NODE_ENV=production). Never a server env entry or a DATABASE_URL fallback. Deploy scrubs inherited overrides. |
+| `CI` | script | (never set) | (never set) | CI runner context for isolated migration tests only; never set in a server env file. It does not enable legacy DATABASE_URL input. |
 | `IMAJIN_APP_PRIVATE_KEY` (secret) | runtime | (never set) | (never set) | Removed. The app throws at boot if this is set — the signing key comes from loadAppSigningKey(), never from env. |
 
 ## Set by Next.js / pm2 (never in the env file)

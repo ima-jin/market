@@ -45,12 +45,13 @@ The kernel verifies both and returns `{ appDid, userDid, scopes }` — that trip
    `createVaultBoot` fetches both credentials through the bootstrap keystore-authenticated encrypted
    channel before dynamically importing the server initializer; only then is the database client created.
    Missing required credentials fail closed with no env fallback. Build and unclaimed mode never create a DB client.
-5. **Migrations are separate from runtime boot** (its own Postgres schema only — see
+5. **Migrate this app's own Postgres schema through the vault** (see
    [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md); on a database that already holds the `market` schema, i.e. prod/dev,
    `scripts/deploy.sh` runs the migration baseline first — see [`docs/DEPLOY.md`](./docs/DEPLOY.md)):
    ```bash
    pnpm install
-   # Migration commands are for isolated CI databases, not server credential handling.
+   node --env-file=.env.local scripts/migrate-baseline.mjs
+   pnpm db:migrate
    ```
 6. **Run it**:
    ```bash
@@ -84,11 +85,11 @@ Full detail: [`docs/REGISTRATION.md`](./docs/REGISTRATION.md) and [`docs/DEPLOY.
 
 ## Deploying (prod + dev)
 
-**Rollout is not authorized by #27.** The historical deployment path below still runs env-based migration
-tooling and must not be used for a vault-only server cutover. Coordinate that separately in
-ima-jin/imajin-ai#2241; keep #2260 separate. No deploy or environment change is part of this adoption.
+**Rollout is not authorized by #27.** Runtime, baseline and migration scripts load credentials
+from the vault into memory; the same non-secret env file passes preflight and configures every step.
+No deploy or environment change is part of this adoption. Keep imajin-ai#2260 separate.
 
-Historical command per environment (`~/prod/market`, `~/dev/market`):
+Command per environment (`~/prod/market`, `~/dev/market`), after browser claim and vault approvals:
 
 ```bash
 scripts/deploy.sh dev                 # or: scripts/deploy.sh prod
@@ -97,7 +98,8 @@ scripts/deploy.sh prod --dry-run      # print the plan, execute nothing
 ```
 
 It validates the env file, installs, builds, runs the idempotent **migration baseline** (adopts the existing
-`market` schema, refuses on mismatch, never drops anything) then `drizzle-kit migrate`, restarts the pm2 entry
+`market` schema, refuses on mismatch, never drops anything) then the vault-backed programmatic
+`scripts/migrate.mjs`, restarts the pm2 entry
 (`prod-market` on 7104 / `dev-market` on 3104) and health-checks `/market/api/health`. The app is served under the
 `/market` base path behind the kernel host's Caddy. See [`docs/DEPLOY.md`](./docs/DEPLOY.md) (runbook, Caddy route,
 pm2, baseline, cutover checklist) and [`docs/ENVIRONMENTS.md`](./docs/ENVIRONMENTS.md) (every env var; `.env.example`,
