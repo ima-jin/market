@@ -208,7 +208,7 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
   Ownership is enforced by this app: a listing's `sellerDid` must equal the caller's DID.
 - **Domain:** _TBD_
 - **Database:** Postgres schema `market` (`APP_DB_SCHEMA=market`), owned by this app via `migrations/`. Tables:
-  `listings`, `disputes`, `seller_settings`.
+  `listings`, `disputes`, `seller_settings`, `checkouts`.
 - **The real-world loop it instruments:** seller lists an item or service → buyer purchases (settled via the kernel) →
   disputes are resolved if the sale goes wrong.
 - **Domain events it emits (via kernel API):** `listing.created`, `listing.updated`, `listing.purchased` — all through

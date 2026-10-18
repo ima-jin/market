@@ -54,7 +54,7 @@ function validateListing(listing: Listing, checkout: Checkout): void {
  * Lock both ownership and inventory. The unique payment claim and stock update commit together.
  * A fresh signature/nonce does not bypass the durable fulfillment marker; rollback releases both.
  */
-export async function claimPaidCheckout(body: PaidNotification): Promise<{ checkout: Checkout; listing: Listing } | null> {
+export function claimPaidCheckout(body: PaidNotification): Promise<{ checkout: Checkout; listing: Listing } | null> {
   requireMatch(typeof body.sessionId === 'string' && body.sessionId.length > 0);
   requireMatch(typeof body.paymentId === 'string' && body.paymentId.length > 0);
   return db.transaction(async (tx) => {

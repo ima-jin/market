@@ -273,6 +273,16 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
     expectNoFulfillment();
   });
 
+  it.each([
+    { quantity: 0 }, { quantity: -1 }, { quantity: 1.5 }, { quantity: 2 },
+    { unitPrice: 1 }, { amountCents: 1 },
+  ])('refuses an inconsistent recorded quantity or DB-derived total: %j', async (override) => {
+    dbState.queue([{ ...CHECKOUT, ...override }], [LISTING]);
+    const amount = override.amountCents ?? PAID.metadata.amount;
+    expect((await hook({ ...PAID, metadata: { ...PAID.metadata, amount } })).status).toBe(400);
+    expectNoFulfillment();
+  });
+
   const invalidNotifications = [
     { label: 'wrong attested seller', sellerDid: 'did:imajin:attacker' },
     { label: 'missing attested seller', sellerDid: undefined },

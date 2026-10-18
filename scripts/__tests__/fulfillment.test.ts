@@ -104,6 +104,18 @@ describe.skipIf(!config.url)('fulfillment binding against real Postgres (#30)', 
     expect(fulfilled.filter((row) => row.fulfilledAt)).toHaveLength(1);
   });
 
+  it('does not oversell when concurrent paid checkouts exhaust the remaining stock', async () => {
+    await db.update(listings).set({ quantity: 2 }).where(eq(listings.id, 'lst_1'));
+    await recordPendingCheckout('lst_1', 'cs_2', { ...ownership, transactionId: 'tx_2' });
+    const results = await Promise.allSettled([
+      claimPaidCheckout(notification),
+      claimPaidCheckout({ ...notification, sessionId: 'cs_2', paymentId: 'pi_2' }),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(await stock()).toBe(0);
+    expect((await db.select().from(checkouts)).filter((row) => row.fulfilledAt)).toHaveLength(1);
+  });
+
   it('enforces payment uniqueness across different listings too', async () => {
     await claimPaidCheckout(notification);
     await db.insert(listings).values({ id: 'lst_2', sellerDid: ownership.sellerDid, title: 'Other', price: 5000, quantity: 10 });
