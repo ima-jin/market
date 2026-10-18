@@ -22,7 +22,7 @@ function auditId(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 function errorScalar(value: unknown): string | undefined {
-  return typeof value === 'string' && /^[A-Za-z0-9_]{1,128}$/.test(value) ? value : undefined;
+  return typeof value === 'string' && /^\w{1,128}$/.test(value) ? value : undefined;
 }
 
 function safeErrorScalars(error: unknown): { name?: string; code?: string; constraint?: string } {
