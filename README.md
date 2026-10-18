@@ -132,6 +132,7 @@ is logged at **error** level naming the setting; unclaimed identity and network 
 Mint and publish requests each have a five-second timeout. Refusals (including 401, 403 for unapproved types,
 and 429 with `Retry-After`) are logged without token, key, payload, or response-body contents. There is no automatic
 replay/retry or delivery guarantee; after 401 the next event mints a fresh token.
+Paid fulfillment refusals are warning-logged with session, payment, listing and reason identifiers only, never secrets.
 
 **Operator step after deployment (prod and dev separately):** review the `emittableEvents` declarations from
 `imajin.app.json` in the `/jin` provision/declarations preview and approve `listing.created`, `listing.updated`,
