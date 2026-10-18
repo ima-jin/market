@@ -1,4 +1,5 @@
 # market — Imajin marketplace app (third-party app on Imajin)
+<!-- Vault boot adoption tracked in #27; operator cutover remains separate. -->
 
 > Forked from [`ima-jin/imajin-app-template`](https://github.com/ima-jin/imajin-app-template). **Read
 > [`AGENTS.md`](./AGENTS.md) first** — it defines the boundary this app must not cross.
