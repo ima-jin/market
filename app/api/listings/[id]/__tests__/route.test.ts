@@ -164,6 +164,18 @@ describe('PATCH /api/listings/:id', () => {
     });
   });
 
+  it.each(['usd', 'uSd', 'USD'])('normalizes %s to uppercase before updating', async (currency) => {
+    queueUpdate();
+    expect((await PATCH(req('PATCH', { currency }), ROUTE_PARAMS)).status).toBe(200);
+    expect(setValues().currency).toBe('USD');
+  });
+
+  it('does not overwrite currency when the patch omits it', async () => {
+    queueUpdate();
+    await PATCH(req('PATCH', { title: 'New title' }), ROUTE_PARAMS);
+    expect(setValues()).not.toHaveProperty('currency');
+  });
+
   it('recalculates the .fair manifest when the price changes', async () => {
     queueUpdate();
 

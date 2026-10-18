@@ -451,7 +451,7 @@ paths:
                 title: { type: string }
                 description: { type: string }
                 price: { type: integer, minimum: 1 }
-                currency: { type: string, default: CAD }
+                currency: { type: string, default: CAD, description: "Normalized to uppercase at write." }
                 category: { type: string }
                 images:
                   type: array
@@ -538,7 +538,7 @@ paths:
                 title: { type: string }
                 description: { type: string }
                 price: { type: integer }
-                currency: { type: string }
+                currency: { type: string, description: "Normalized to uppercase at write." }
                 category: { type: string }
                 images:
                   type: array
@@ -928,10 +928,20 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "500": { $ref: "#/components/responses/ServerError" }
         "400":
-          description: Correctly signed body is not valid JSON
+          description: Correctly signed body is invalid or paid notification does not match its recorded checkout and listing
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Payment ID already claimed by another checkout; no additional inventory decrement
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, code]
+                properties:
+                  error: { type: string, example: "Payment ID is already claimed by another checkout" }
+                  code: { type: string, enum: [PAYMENT_ID_CONFLICT] }
         "503":
           description: Public discovery, trust or store failure; no business side effects
           content:

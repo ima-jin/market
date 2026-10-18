@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalKernelWebhookPayload } from '@ima-jin/auth/kernel-webhook';
 import { createLogger } from '@ima-jin/logger';
+import { DrizzleQueryError } from 'drizzle-orm';
 
 const mocks = vi.hoisted(() => ({ emitEvent: vi.fn(), settleListingPurchase: vi.fn(), recordByoSettlement: vi.fn() }));
 
@@ -271,6 +272,83 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
     dbState.queue([]);
     expect((await hook({ ...PAID, rail })).status).toBe(400);
     expectNoFulfillment();
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith({
+      sessionId: PAID.sessionId, paymentId: PAID.paymentId, listingId: PAID.metadata.listingId,
+      reason: 'PAYMENT_MISMATCH',
+    }, 'paid notification refused');
+  });
+
+  it.each([
+    { sessionId: undefined },
+    { paymentId: undefined },
+    { metadata: undefined },
+  ])('logs only available identifiers for incomplete paid notifications: %j', async (override) => {
+    dbState.queue([CHECKOUT]);
+    const body = { ...PAID, ...override, secret: 'FAKE_NOT_FOR_LOGGING' };
+    expect((await hook(body)).status).toBe(400);
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith({
+      sessionId: body.sessionId, paymentId: body.paymentId, listingId: body.metadata?.listingId,
+      reason: 'PAYMENT_MISMATCH',
+    }, 'paid notification refused');
+    expect(log.error).not.toHaveBeenCalled();
+    expectNoFulfillment();
+  });
+
+  it.each(['sessionId', 'paymentId', 'listingId'])('never logs a structured %s from a malformed paid notification', async (field) => {
+    const untrusted = { privateValue: 'FAKE_NOT_FOR_LOGGING' };
+    const body = {
+      ...PAID,
+      [field]: untrusted,
+      metadata: { ...PAID.metadata, ...(field === 'listingId' ? { listingId: untrusted } : {}) },
+    };
+    dbState.queue([CHECKOUT]);
+    expect((await hook(body)).status).toBe(400);
+    expect(log.warn).toHaveBeenCalledWith({
+      sessionId: field === 'sessionId' ? undefined : PAID.sessionId,
+      paymentId: field === 'paymentId' ? undefined : PAID.paymentId,
+      listingId: field === 'listingId' ? undefined : PAID.metadata.listingId,
+      reason: 'PAYMENT_MISMATCH',
+    }, 'paid notification refused');
+    expectNoFulfillment();
+  });
+
+  function uniqueViolation(constraint = 'checkouts_payment_id_unique', code = '23505') {
+    return Object.assign(new Error('FAKE_DATABASE_DETAILS_NOT_FOR_LOGGING'), { code, constraint_name: constraint });
+  }
+
+  it.each([false, true])('returns a clear 409 for cross-session payment reuse (wrapped: %s)', async (wrapped) => {
+    const cause = uniqueViolation();
+    const error = wrapped ? new DrizzleQueryError('update checkouts', ['FAKE_SQL_PARAMETER'], cause) : cause;
+    dbState.queue([CHECKOUT], [LISTING], error);
+    const response = await hook({ ...PAID, rail: 'stripe-byo' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'Payment ID is already claimed by another checkout', code: 'PAYMENT_ID_CONFLICT',
+    });
+    expect(dbState.argsOf('set', 'update')).toHaveLength(1); // claim attempted, inventory untouched
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith({
+      sessionId: PAID.sessionId, paymentId: PAID.paymentId, listingId: PAID.metadata.listingId,
+      reason: 'PAYMENT_ID_CONFLICT',
+    }, 'paid notification refused');
+    expect(log.error).not.toHaveBeenCalled();
+    expect(mocks.emitEvent).not.toHaveBeenCalled();
+    expect(mocks.recordByoSettlement).not.toHaveBeenCalled();
+    expect(mocks.settleListingPurchase).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    uniqueViolation('checkouts_transaction_id_unique'),
+    uniqueViolation('checkouts_payment_id_unique', '23514'),
+    new Error('database unavailable'),
+  ])('does not misclassify other database failures as payment conflicts (%#)', async (error) => {
+    dbState.queue([CHECKOUT], [LISTING], error);
+    expect((await hook(PAID)).status).toBe(500);
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledWith({ reason: 'PROCESSING_FAILED' }, 'Webhook error');
+    expect(mocks.emitEvent).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -377,12 +455,32 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
     expect(setValues()).toMatchObject({ quantity: null, status: 'active' });
   });
 
-  it('uses the server-recorded anonymous buyer', async () => {
+  it.each([
+    ['cad', 'CAD', 'CAD'],
+    ['CAD', 'cad', 'CAD'],
+    ['CAD', 'CAD', 'cad'],
+    ['cAd', 'caD', 'Cad'],
+  ])('fulfills case-insensitive currencies (listing=%s, checkout=%s, payment=%s)', async (listing, checkout, payment) => {
+    queuePurchase({ ...LISTING, currency: listing }, { ...CHECKOUT, currency: checkout });
+    expect((await hook({ ...PAID, metadata: { ...PAID.metadata, currency: payment } })).status).toBe(200);
+    expect(setValues()).toMatchObject({ quantity: 0, status: 'sold' });
+    expect(mocks.emitEvent).toHaveBeenCalledTimes(1);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it.each([null, 123, ''])('refuses invalid payment currency %j without an internal error', async (currency) => {
+    queuePurchase();
+    expect((await hook({ ...PAID, metadata: { ...PAID.metadata, currency } })).status).toBe(400);
+    expectNoFulfillment();
+  });
+
+  it('omits issuer for the server-recorded anonymous buyer', async () => {
     queuePurchase(LISTING, { ...CHECKOUT, buyerDid: '' });
     expect((await hook({ ...PAID, metadata: { ...PAID.metadata, buyerDid: undefined } })).status).toBe(200);
     expect(mocks.emitEvent).toHaveBeenCalledWith('listing.purchased', expect.objectContaining({
-      issuer: '', payload: expect.objectContaining({ buyerDid: '', interestDids: [LISTING.sellerDid] }),
+      payload: expect.objectContaining({ buyerDid: '', interestDids: [LISTING.sellerDid] }),
     }));
+    expect(mocks.emitEvent.mock.calls[0][1]).not.toHaveProperty('issuer');
   });
 
   it('settles a platform-collected checkout with its recorded transaction and payee chain', async () => {

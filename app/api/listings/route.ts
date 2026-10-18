@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
         title,
         description: description || null,
         price,
-        currency: currency || 'CAD',
+        currency: (currency || 'CAD').toUpperCase(),
         category: category || null,
         images: images || [],
         imageAssetIds: imageAssetIds || [],

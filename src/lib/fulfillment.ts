@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { DrizzleQueryError, eq } from 'drizzle-orm';
 import { checkouts, db, listings, type Checkout, type Listing } from '@/db';
 
 /** The kernel overwrites metadata.amount/currency from Stripe; sellerDid is top-level attestation. */
@@ -20,20 +20,31 @@ export interface PaidNotification {
 }
 
 export class FulfillmentRejected extends Error {
-  constructor() {
-    super('Payment does not match a recorded checkout');
+  constructor(readonly code: 'PAYMENT_MISMATCH' | 'PAYMENT_ID_CONFLICT' = 'PAYMENT_MISMATCH') {
+    super(code === 'PAYMENT_ID_CONFLICT'
+      ? 'Payment ID is already claimed by another checkout'
+      : 'Payment does not match a recorded checkout');
   }
+}
+function isPaymentIdConflict(error: unknown): boolean {
+  if (error instanceof DrizzleQueryError) return isPaymentIdConflict(error.cause);
+  return error instanceof Error
+    && 'code' in error && error.code === '23505'
+    && 'constraint_name' in error && error.constraint_name === 'checkouts_payment_id_unique';
 }
 
 function requireMatch(condition: boolean): void {
   if (!condition) throw new FulfillmentRejected();
+}
+function currenciesMatch(actual: unknown, expected: string): boolean {
+  return typeof actual === 'string' && actual.toUpperCase() === expected.toUpperCase();
 }
 
 function validatePayment(body: PaidNotification, checkout: Checkout): void {
   requireMatch(body.metadata?.listingId === checkout.listingId);
   requireMatch(body.sellerDid === checkout.sellerDid);
   requireMatch(body.metadata?.amount === checkout.amountCents);
-  requireMatch(body.metadata?.currency === checkout.currency);
+  requireMatch(currenciesMatch(body.metadata?.currency, checkout.currency));
   // Metadata identity can corroborate the record, but cannot supply a different buyer or seller.
   requireMatch(body.metadata?.buyerDid === (checkout.buyerDid || undefined));
   requireMatch(body.metadata?.sellerDid === undefined || body.metadata.sellerDid === checkout.sellerDid);
@@ -42,7 +53,7 @@ function validatePayment(body: PaidNotification, checkout: Checkout): void {
 
 function validateListing(listing: Listing, checkout: Checkout): void {
   requireMatch(listing.sellerDid === checkout.sellerDid);
-  requireMatch(listing.price === checkout.unitPrice && listing.currency === checkout.currency);
+  requireMatch(listing.price === checkout.unitPrice && currenciesMatch(listing.currency, checkout.currency));
   requireMatch(Number.isSafeInteger(checkout.quantity) && checkout.quantity > 0);
   const expectedAmount = listing.price * checkout.quantity;
   requireMatch(Number.isSafeInteger(expectedAmount) && expectedAmount > 0 && expectedAmount === checkout.amountCents);
@@ -80,5 +91,9 @@ export function claimPaidCheckout(body: PaidNotification): Promise<{ checkout: C
       updatedAt: new Date(),
     }).where(eq(listings.id, listing.id));
     return { checkout, listing };
+  }).catch((error: unknown) => {
+    // The transaction has rolled back before this translation; never leak SQL/parameters.
+    if (isPaymentIdConflict(error)) throw new FulfillmentRejected('PAYMENT_ID_CONFLICT');
+    throw error;
   });
 }
