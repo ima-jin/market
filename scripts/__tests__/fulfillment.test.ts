@@ -6,7 +6,7 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const config = vi.hoisted(() => ({
-  url: process.env.DATABASE_URL,
+  url: process.env.MIGRATIONS_TEST_DATABASE_URL,
   database: `market_fulfillment_${process.pid}_${Date.now()}`,
 }));
 

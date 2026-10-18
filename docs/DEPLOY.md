@@ -1,5 +1,11 @@
 # Deploying market (prod + dev)
 
+**Vault adoption (#27) is app code only, not rollout authorization.** Runtime and deployment
+migration credentials are vault-only. The commands below use the same non-secret env file
+for preflight, baseline and migration. Do not copy/import/rotate any server value through SSH,
+a shell, or env files.
+Keep ima-jin/imajin-ai#2260 separate.
+
 market is deployed from **this repo**, as its own pm2 process behind the kernel host's Caddy. Nothing in
 `ima-jin/imajin-ai` builds, migrates, or restarts it any more (imajin-ai#1989). Everything here goes through the
 registered-app contract: a kernel-minted app identity, the published `@ima-jin/*` SDK, and the kernel's public HTTP
@@ -28,9 +34,10 @@ scripts/deploy.sh prod --dry-run      # print the plan, execute nothing
 ```
 
 It is fail-fast: any failure before step 7 stops the deploy and the running process keeps serving the previous
-build. The env file is the single source of truth: contract variables exported in the calling shell are ignored
-(and listed by name), because `node --env-file` and `pm2 --update-env` would otherwise let a stray `DATABASE_URL`
-win. Note that step 2 swaps in the new ref's `deploy.sh`, so a change to the script itself takes effect from the
+build. The env file supplies non-secret configuration; the vault supplies credentials. Contract variables
+exported in the calling shell are scrubbed (and listed by name), including isolated-test overrides.
+Legacy `DATABASE_URL` is never read by runtime, baseline or migration. Note that step 2 swaps in
+the new ref's `deploy.sh`, so a change to the script itself takes effect from the
 *next* run.
 
 1. **preflight** — `git`, `node` (>= `.nvmrc`), `pnpm`, `pm2`, `curl` on `PATH`; no local changes to tracked files;
@@ -43,7 +50,8 @@ win. Note that step 2 swaps in the new ref's `deploy.sh`, so a change to the scr
 4. **install** — `pnpm install --frozen-lockfile`.
 5. **build** — `next build` with `.env.local` loaded, so `NEXT_PUBLIC_*` values are baked in.
 6. **baseline + migrate** — `scripts/migrate-baseline.mjs` (idempotent; refuses on mismatch), then
-   `drizzle-kit migrate` (forward-only). See [Migration baseline](#migration-baseline).
+   `scripts/migrate.mjs` (forward-only programmatic Drizzle migrator). Both fetch the required
+   database credential from the vault before connecting. See [Migration baseline](#migration-baseline).
 7. **restart** — `pm2 startOrReload ecosystem.config.cjs --only <prod|dev>-market --update-env`, then `pm2 save`.
 8. **health** — polls `/market/api/health` for up to 60 s and requires `"status":"ok"`. A non-healthy result exits
    non-zero. (The endpoint proves the process booted — `instrumentation.ts` refuses to start without a valid
@@ -55,7 +63,17 @@ Before upgrading market, use the approved operator tool to deploy a kernel that 
 ima-jin/imajin-ai#2801, then select **Sync manifest secrets** on `/jin` for this app and
 countersign the proposal. Do this on each environment before upgrading its app.
 Skipping the kernel upgrade or manifest Sync makes an already-claimed app fail closed at boot.
-No secret is generated, revealed, pasted into a shell, or copied to an env file.
+For #27 the kernel must also include ima-jin/imajin-ai#2851, and the app uses the public
+`@ima-jin/auth-client@0.8.24`. Sync the `DATABASE_URL` name/kind-only `operator-supplied`
+declaration, then use **App secrets set/rotate** on `/jin` with **owner countersign** to supply
+the existing external value. Manifest sync alone creates no imported value. Repeat separately
+for dev and prod only during the approved cutover; no such action is performed by this PR.
+Session signing stays generated (`random-32B`), including dev: no imported value is needed.
+Callbacks already use kernel signatures, so there is no shared callback secret to declare.
+`createVaultBoot` authenticates encrypted fetches using the bootstrap keystore, validates both
+required names in memory, and only then dynamically imports the server initializer and constructs
+Postgres. Unavailable values prevent claimed boot/activation; no value is copied to process.env.
+No secret is revealed, pasted into a shell, or copied to an env file.
 If a stale vault-issued env entry remains, boot warns by name only that it is ignored and must
 be deleted; it is never used as a fallback.
 ## First deploy of an environment (fresh checkout)
@@ -77,7 +95,8 @@ Use `~/dev/market` and `.env.dev.example` / `scripts/deploy.sh dev` for dev. Dep
 - **Mint the app identity** — separately for dev and prod, through the kernel's claim flow. See
   [Identity](#identity-the-claim-flow) below and [REGISTRATION.md](./REGISTRATION.md). Minting happens on the kernel
   side (the operator's `/jin` approval card); this repo only redeems the resulting one-time code.
-- **Create the databases/roles** and put the connection strings in each `.env.local`. Prod/dev already contain the
+- **Create the databases/roles** through the approved operator process and supply database locators only through
+  `/jin` App secrets set/rotate with owner countersign, never `.env.local`. Prod/dev already contain the
   `market` schema; the baseline adopts it in place.
 - **Session signing is vault-only.** The kernel issues and seals the recipe in `imajin.app.json` on
   provision/claim. For an existing app select **Sync manifest secrets** on `/jin` and countersign.
@@ -104,7 +123,9 @@ no key material is ever put in `.env.local` (the app refuses to boot if `IMAJIN_
    (`https://dev-jin.imajin.ai` / `https://jin.imajin.ai`). The kernel returns the app's `did:imajin:…` and a
    **one-time claim code**.
 2. Configure the non-secret `IMAJIN_APP_DID` and persistent per-environment `IMAJIN_APP_KEYSTORE` path, then
-   deploy. Without a keystore the app boots unclaimed and links to `/market/claim`; health reports `claimed: false`.
+   start in unclaimed mode through the approved operator start flow and open `/market/claim`;
+   health reports `claimed: false`. Do this before the first migration deployment: the migration
+   step requires a claimed bootstrap keystore and an approved database vault value.
 3. Open that environment's `/market/claim` in a browser, paste the code from `/jin`, and submit. The exchange
    writes the `0600` bootstrap keystore and activates the app immediately — no env edit or restart.
    Every later boot re-authenticates with the keystore alone, unchanged for already-claimed deployments.
@@ -124,28 +145,41 @@ long before this repo had its own drizzle history. This repo's `migrations/0000_
 ```bash
 node --env-file=.env.local scripts/migrate-baseline.mjs            # baseline (what deploy.sh runs)
 node --env-file=.env.local scripts/migrate-baseline.mjs --dry-run  # validate only, write nothing
+node --env-file=.env.local scripts/migrate.mjs                    # apply pending migrations
 ```
 
 - **Uses the repo's own migrations.** It reads `migrations/meta/_journal.json` and records the first entry
   (`0000_market_schema`) exactly the way drizzle's migrator does (sha256 of the SQL file + the journal `when`), in
-  drizzle's own tracking table `"market"."__drizzle_migrations"` (`drizzle.config.ts` keeps it inside the app
-  schema). `drizzle-kit migrate` then applies only what is newer.
+  drizzle's own tracking table `"market"."__drizzle_migrations"`. `scripts/migrate.mjs` passes
+  `migrationsSchema: APP_DB_SCHEMA` and applies only what is newer. `drizzle.config.ts` is offline generation only.
 - **Idempotent.** If migration 0000 is already recorded it does nothing and exits 0, so `deploy.sh` runs it every
   time.
 - **Refuses on mismatch.** It introspects the live `market` schema (tables, columns, types, nullability, defaults,
   primary/unique keys, the `disputes → listings` foreign key and its actions, required indexes) and compares it with
   what migration 0000 produces. Any difference — missing/extra table or column, wrong type, missing FK or index, or
-  unrecognised rows already in the tracking table — exits **1** with a list of the problems and changes nothing.
+  unrecognised rows already in the tracking table — exits **1** with a fixed refusal and changes nothing.
   Column order and extra indexes are tolerated. Reconcile the schema by hand; never force it.
 - **Never drops, truncates, or alters.** The app tables are only ever read (`pg_catalog` SELECTs). The only writes
   are `CREATE SCHEMA/TABLE IF NOT EXISTS` for drizzle's tracking table and one `INSERT` of the 0000 hash, in one
   transaction under an advisory lock. The test suite asserts this by auditing every statement issued.
 - **Fresh databases** (no `market` schema) are left alone: it reports "nothing to baseline" and exits 0, and
-  `drizzle-kit migrate` then creates everything.
+  `scripts/migrate.mjs` then creates everything.
 - Exit codes: `0` ok · `1` refused (mismatch) · `2` usage/config/connection error. The connection string is never
   printed.
 
-After the baseline, `drizzle-kit migrate` applies only migrations newer than 0000. Migrations are forward-only;
+Both entry points use `loadFromVault` with the app DID, kernel URL and bootstrap keystore from
+the non-secret env file, requesting only `DATABASE_URL` with `onMissing: 'fail'`. The credential
+is encrypted in transit and remains in memory. No env/file fallback or credential-bearing
+subprocess is used. Vault refusal, malformed/missing values, connection, migration and cleanup
+errors fail closed with fixed, value-free messages. The client is closed after use.
+An unavailable vault stops deploy before pm2 is touched; fix the keystore or the approved
+App secrets set/rotate declaration on `/jin`, never add a database env value.
+
+`MIGRATIONS_TEST_DATABASE_URL` is an explicit isolated-test override, requiring `NODE_ENV=test`
+or `CI=true` and refused in production mode. `check-env` rejects it and `CI` in server files;
+deploy scrubs inherited overrides. Never use it for server values.
+
+After the baseline, `scripts/migrate.mjs` applies only migrations newer than 0000. Migrations are forward-only;
 there is no down-migration. New migrations must be additive/guarded (`IF NOT EXISTS`) — see
 [MIGRATIONS.md](./MIGRATIONS.md).
 
@@ -234,7 +268,7 @@ rollback is only safe while migrations stay additive.
 
 ## Troubleshooting
 
-- **`baseline` exits 1** — the message lists exactly what differs. Do not edit the script to force it; fix the schema
+- **`baseline` exits 1** — the live schema/history failed validation. Do not edit the script to force it; fix the schema
   (or tell the app owner the schema drifted), then re-run.
 - **`env check` fails** — each line names a variable; see [ENVIRONMENTS.md](./ENVIRONMENTS.md).
 - **Health is OK but `claimed: false`** — approve provisioning on `/jin`, then open `/market/claim` and submit the

@@ -67,13 +67,18 @@ cp .env.example .env.local
 #   IMAJIN_APP_DID=<appDid from the response above>
 #   NEXT_PUBLIC_IMAJIN_APP_ID=<id from the response above>
 #   APP_DB_SCHEMA=<a name for this app's own Postgres schema — see docs/MIGRATIONS.md>
-#   DATABASE_URL=<this app's own Postgres connection string>
 #   IMAJIN_KERNEL_URL=<same host as IMAJIN_AUTH_URL above>
 ```
 
 Without `IMAJIN_APP_DID` set, or with a raw `IMAJIN_APP_PRIVATE_KEY` still set, `pnpm dev` /
 `pnpm start` throw immediately (`instrumentation.ts`) instead of serving requests no kernel call
 could ever authenticate.
+
+Declare the database locator as name/kind-only `operator-supplied` in `imajin.app.json`.
+For each environment, sync the manifest on `/jin`, then use **App secrets set/rotate**
+with **owner countersign** to supply `DATABASE_URL`. Sync alone creates no imported value.
+Never paste the value into commands, SSH sessions or env files. This is an operator step
+before runtime or deployment migrations; no value-handling action is performed by market#27.
 
 ## 4. Claim this app's own signing key (#7, #2427)
 
@@ -131,9 +136,12 @@ revokes the lost keystore's bootstrap key. Redeem the fresh code only through `/
 ### Vault-backed session signing
 
 `imajin.app.json` declares the session signing recipe. The kernel issues and seals it during
-provision/claim. Market awaits `@ima-jin/auth-client` 0.8.18 `loadFromVault` using its own
-bootstrap keystore before enabling the signing identity or signed-in sessions. Values stay in
-process memory only; a stale env session variable is ignored.
+provision/claim; retain that generated recipe in dev and prod. Market uses the public
+`@ima-jin/auth-client` 0.8.24 `createVaultBoot` with its own bootstrap keystore to fetch
+both required credentials encrypted into a typed in-memory config. Its start callback
+dynamically imports the server initializer; the database client reads initialized config,
+never env. Only after that succeeds are signing identity and sessions enabled. Unclaimed
+mode constructs no DB client. A stale env credential is ignored, with a names-only warning.
 
 For an already-claimed app, select **Sync manifest secrets** on `/jin`, review and countersign
 the proposal. If boot reports the session signing name unavailable, check kernel connectivity

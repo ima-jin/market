@@ -10,7 +10,7 @@
  *
  * The fix is a *baseline*: prove the live schema is what migration 0000 would
  * have produced, then record 0000 as already applied in drizzle's own tracking
- * table so `drizzle-kit migrate` only runs what comes after it.
+ * table so `scripts/migrate.mjs` only runs what comes after it.
  *
  * Safety contract (enforced by tests in scripts/__tests__/):
  *   - Read-only against the app tables: only `pg_catalog` introspection
@@ -26,8 +26,8 @@
  * `(hash = sha256(sql file contents), created_at = journal entry "when")` in
  * the tracking table; the migrator applies only journal entries whose `when`
  * is greater than the newest recorded `created_at`. Unlike a default drizzle
- * setup, `drizzle.config.ts` keeps that table INSIDE the app schema
- * (`migrations: { schema: APP_DB_SCHEMA }`) so the app never writes outside
+ * setup, `scripts/migrate.mjs` keeps that table INSIDE the app schema
+ * (`migrationsSchema: APP_DB_SCHEMA`) so the app never writes outside
  * the schema it owns — the baseline therefore defaults to the app schema too,
  * and introspection ignores the tracking table itself.
  */

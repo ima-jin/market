@@ -46,8 +46,9 @@ describe('env contract coverage', () => {
   it('pins the public auth SDK and service-token-capable auth-client exactly', () => {
     const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string> };
     expect(pkg.dependencies['@ima-jin/auth']).toBe('0.8.18');
-    expect(pkg.dependencies['@ima-jin/auth-client']).toBe('0.8.22');
+    expect(pkg.dependencies['@ima-jin/auth-client']).toBe('0.8.24');
   });
+
 
   it('documents kernel-first and signed manifest Sync before upgrading each environment', () => {
     const runbook = read('docs/DEPLOY.md');
@@ -162,11 +163,7 @@ describe('env contract coverage', () => {
       const parsed = parseEnv(read(file));
       for (const variable of ENV_VARS.filter((v) => v.secret)) {
         const value = parsed[variable.name] ?? '';
-        if (variable.name === 'DATABASE_URL') {
-          expect(value, file).toMatch(/^postgres:\/\/[^:@/]+:(CHANGE_ME|password)@/);
-        } else {
-          expect(value, `${file} ${variable.name}`).toMatch(/^(|REPLACE_ME)$/);
-        }
+        expect(value, `${file} ${variable.name}`).toMatch(/^(|REPLACE_ME)$/);
       }
     }
   });
@@ -202,6 +199,15 @@ describe('validateEnv', () => {
   const validDev = (overrides: Record<string, string> = {}) => filled('.env.dev.example', overrides);
   const errorsOf = (env: Record<string, string | undefined>, target: 'dev' | 'prod') =>
     validateEnv(env, target).errors.join('\n');
+
+  it('rejects migration test overrides and CI flags in server env files without echoing values', () => {
+    const errors = errorsOf(validProd({
+      MIGRATIONS_TEST_DATABASE_URL: 'FAKE_TEST_ONLY_DATABASE_LOCATOR', CI: 'true',
+    }), 'prod');
+    expect(errors).toContain('MIGRATIONS_TEST_DATABASE_URL must not be set');
+    expect(errors).toContain('CI must not be set');
+    expect(errors).not.toContain('FAKE_TEST_ONLY_DATABASE_LOCATOR');
+  });
 
   it('reports every missing required variable by name', () => {
     const { errors } = validateEnv({}, 'prod');
@@ -239,7 +245,7 @@ describe('validateEnv', () => {
     );
     expect(errors).toMatch(/APP_DB_SCHEMA must be `market`/);
     expect(errors).toMatch(/NEXT_PUBLIC_BASE_PATH must be \/market/);
-    expect(errors).toMatch(/DATABASE_URL must be a postgres/);
+    expect(errors).toMatch(/DATABASE_URL must not be set/);
     expect(errors).toMatch(/must start with did:imajin:/);
   });
 
@@ -317,11 +323,11 @@ describe('check-env CLI', () => {
 
   it('exits 1 for an invalid file without echoing any value', () => {
     const file = join(dir, 'bad.env');
-    writeFileSync(file, 'DATABASE_URL=postgres://u:supersecretvalue@h/db\nIMAJIN_APP_PRIVATE_KEY=supersecretkey\n');
+    writeFileSync(file, 'DATABASE_URL=FAKE_TEST_ONLY_DATABASE_LOCATOR\nIMAJIN_APP_PRIVATE_KEY=FAKE_TEST_ONLY_PRIVATE_KEY\n');
     const result = cli(['prod', '--file', file]);
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/IMAJIN_APP_PRIVATE_KEY must not be set/);
-    expect(result.stdout + result.stderr).not.toContain('supersecret');
+    expect(result.stdout + result.stderr).not.toContain('FAKE_TEST_ONLY');
   });
 
   it('exits 2 on a missing file, an unknown target, and stray arguments', () => {

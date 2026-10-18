@@ -9,14 +9,19 @@ import { resetClaimRateLimitForTests } from '@/lib/claim-rate-limit';
 import { middleware } from '../../../../middleware';
 import { GET as health } from '../../health/route';
 import { POST } from '../route';
+import { SelfSecretsUnavailableError } from '@/lib/self-secrets';
 
 const KERNEL_URL = 'https://dev-jin.imajin.test';
 const RATE_LIMIT = 5;
 const { loadFromVaultMock } = vi.hoisted(() => ({ loadFromVaultMock: vi.fn() }));
-vi.mock('@ima-jin/auth-client', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@ima-jin/auth-client')>(),
-  loadFromVault: loadFromVaultMock,
-}));
+vi.mock('@ima-jin/auth-client', async (importOriginal) => {
+  const { mockVaultBoot } = await import('../../../../test/__tests__/vault-boot.stub');
+  return {
+    ...await importOriginal<typeof import('@ima-jin/auth-client')>(),
+    createVaultBoot: mockVaultBoot(loadFromVaultMock),
+  };
+});
+vi.mock('@/lib/server', () => ({ initializeServer: vi.fn() }));
 
 function postRequest(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request('http://localhost:3000/api/claim', {
@@ -41,7 +46,10 @@ describe('POST /api/claim', () => {
 
   beforeEach(async () => {
     loadFromVaultMock.mockReset().mockResolvedValue({
-      values: { SESSION_SECRET: 'FAKE_TEST_ONLY_VAULT_SESSION_MATERIAL' }, degraded: [],
+      values: {
+        SESSION_SECRET: 'FAKE_TEST_ONLY_VAULT_SESSION_MATERIAL',
+        DATABASE_URL: 'FAKE_TEST_ONLY_DATABASE_LOCATOR',
+      }, degraded: [],
     });
     workDir = await mkdtemp(join(tmpdir(), 'imajin-claim-route-'));
     vi.stubEnv('IMAJIN_KERNEL_URL', KERNEL_URL);
@@ -106,10 +114,10 @@ describe('POST /api/claim', () => {
     const response = await POST(postRequest({ claimCode: 'FAKE_BROWSER_CLAIM_CODE' }) as never);
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
-      error: 'SESSION_SECRET unavailable from vault — on /jin select Sync manifest secrets, countersign, and restart market.',
+      error: new SelfSecretsUnavailableError().message,
     });
     expect(log.mock.calls).toEqual([[
-      'SESSION_SECRET unavailable from vault — on /jin select Sync manifest secrets, countersign, and restart market.',
+      new SelfSecretsUnavailableError().message,
     ]]);
     expect(await health().json()).toMatchObject({ claimed: false });
   });

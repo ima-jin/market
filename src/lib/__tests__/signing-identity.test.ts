@@ -14,14 +14,21 @@ import {
 
 const KERNEL_URL = 'https://dev-jin.imajin.test';
 const { loadFromVaultMock } = vi.hoisted(() => ({ loadFromVaultMock: vi.fn() }));
-vi.mock('@ima-jin/auth-client', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@ima-jin/auth-client')>(),
-  loadFromVault: loadFromVaultMock,
-}));
+vi.mock('@ima-jin/auth-client', async (importOriginal) => {
+  const { mockVaultBoot } = await import('../../../test/__tests__/vault-boot.stub');
+  return {
+    ...await importOriginal<typeof import('@ima-jin/auth-client')>(),
+    createVaultBoot: mockVaultBoot(loadFromVaultMock),
+  };
+});
+vi.mock('../server', () => ({ initializeServer: vi.fn() }));
 
 beforeEach(() => {
   loadFromVaultMock.mockReset().mockResolvedValue({
-    values: { SESSION_SECRET: 'FAKE_TEST_ONLY_SESSION_SIGNING_MATERIAL' },
+    values: {
+      SESSION_SECRET: 'FAKE_TEST_ONLY_SESSION_SIGNING_MATERIAL',
+      DATABASE_URL: 'FAKE_TEST_ONLY_DATABASE_LOCATOR',
+    },
     degraded: [],
   });
 });
