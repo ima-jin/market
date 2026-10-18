@@ -10,7 +10,7 @@ export type MarketEventType =
   | 'listing.purchased';
 
 export interface MarketEvent {
-  issuer: string;
+  issuer?: string;
   subject: string;
   scope: 'market';
   payload: Record<string, unknown>;

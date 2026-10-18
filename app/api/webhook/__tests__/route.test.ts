@@ -436,12 +436,32 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
     expect(setValues()).toMatchObject({ quantity: null, status: 'active' });
   });
 
-  it('uses the server-recorded anonymous buyer', async () => {
+  it.each([
+    ['cad', 'CAD', 'CAD'],
+    ['CAD', 'cad', 'CAD'],
+    ['CAD', 'CAD', 'cad'],
+    ['cAd', 'caD', 'Cad'],
+  ])('fulfills case-insensitive currencies (listing=%s, checkout=%s, payment=%s)', async (listing, checkout, payment) => {
+    queuePurchase({ ...LISTING, currency: listing }, { ...CHECKOUT, currency: checkout });
+    expect((await hook({ ...PAID, metadata: { ...PAID.metadata, currency: payment } })).status).toBe(200);
+    expect(setValues()).toMatchObject({ quantity: 0, status: 'sold' });
+    expect(mocks.emitEvent).toHaveBeenCalledTimes(1);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it.each([null, 123, ''])('refuses invalid payment currency %j without an internal error', async (currency) => {
+    queuePurchase();
+    expect((await hook({ ...PAID, metadata: { ...PAID.metadata, currency } })).status).toBe(400);
+    expectNoFulfillment();
+  });
+
+  it('omits issuer for the server-recorded anonymous buyer', async () => {
     queuePurchase(LISTING, { ...CHECKOUT, buyerDid: '' });
     expect((await hook({ ...PAID, metadata: { ...PAID.metadata, buyerDid: undefined } })).status).toBe(200);
     expect(mocks.emitEvent).toHaveBeenCalledWith('listing.purchased', expect.objectContaining({
-      issuer: '', payload: expect.objectContaining({ buyerDid: '', interestDids: [LISTING.sellerDid] }),
+      payload: expect.objectContaining({ buyerDid: '', interestDids: [LISTING.sellerDid] }),
     }));
+    expect(mocks.emitEvent.mock.calls[0][1]).not.toHaveProperty('issuer');
   });
 
   it('settles a platform-collected checkout with its recorded transaction and payee chain', async () => {

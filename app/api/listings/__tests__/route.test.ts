@@ -167,6 +167,13 @@ describe('POST /api/listings', () => {
     expect(manifest.chain.some((entry) => entry.did === SELLER)).toBe(true);
   });
 
+  it.each(['cad', 'cAd', 'CAD'])('normalizes %s to uppercase before inserting', async (currency) => {
+    dbState.queue([{ id: 'lst_1', currency: 'CAD' }]);
+    expect((await post({ ...VALID, currency })).status).toBe(201);
+    const [values] = dbState.argsOf('values', 'insert')[0] as [Record<string, unknown>];
+    expect(values.currency).toBe('CAD');
+  });
+
   it('honours every optional field the caller supplies', async () => {
     dbState.queue([{ id: 'lst_1', currency: 'USD' }]);
 

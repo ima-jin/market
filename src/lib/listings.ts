@@ -171,6 +171,9 @@ export function buildListingUpdates(body: ListingPatchBody): Record<string, unkn
       updates[field] = body[field];
     }
   }
+  if (body.currency !== undefined) {
+    updates.currency = body.currency.toUpperCase();
+  }
   if (body.expiresAt !== undefined) {
     updates.expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
   }

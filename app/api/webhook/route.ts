@@ -21,7 +21,7 @@ function isPaymentSuccess(body: PaidNotification): boolean {
 function publishListingPurchased(checkout: Checkout, listing: Listing): void {
   // Only the atomic claim winner emits; identity/value come from the server's checkout.
   void emitEvent('listing.purchased', {
-    issuer: checkout.buyerDid,
+    ...(checkout.buyerDid ? { issuer: checkout.buyerDid } : {}),
     subject: checkout.sellerDid,
     scope: 'market',
     payload: {

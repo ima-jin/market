@@ -153,6 +153,15 @@ describe.skipIf(!config.url)('fulfillment binding against real Postgres (#30)', 
     expect(await stock()).toBe(8);
   });
 
+  it('fulfills legacy lowercase listing and checkout currencies with a mixed-case notification', async () => {
+    await db.update(listings).set({ currency: 'cad' }).where(eq(listings.id, 'lst_1'));
+    await db.update(checkouts).set({ currency: 'cad' }).where(eq(checkouts.sessionId, 'cs_1'));
+    expect(await claimPaidCheckout({
+      ...notification, metadata: { ...notification.metadata, currency: 'cAd' },
+    })).not.toBeNull();
+    expect(await stock()).toBe(8);
+  });
+
   it('does not trust a forged legacy pending checkout in seller-editable metadata', async () => {
     await db.update(listings).set({
       metadata: { pendingCheckouts: { cs_forged: { ...ownership, at: new Date().toISOString() } } },

@@ -36,12 +36,15 @@ function isPaymentIdConflict(error: unknown): boolean {
 function requireMatch(condition: boolean): void {
   if (!condition) throw new FulfillmentRejected();
 }
+function currenciesMatch(actual: unknown, expected: string): boolean {
+  return typeof actual === 'string' && actual.toUpperCase() === expected.toUpperCase();
+}
 
 function validatePayment(body: PaidNotification, checkout: Checkout): void {
   requireMatch(body.metadata?.listingId === checkout.listingId);
   requireMatch(body.sellerDid === checkout.sellerDid);
   requireMatch(body.metadata?.amount === checkout.amountCents);
-  requireMatch(body.metadata?.currency === checkout.currency);
+  requireMatch(currenciesMatch(body.metadata?.currency, checkout.currency));
   // Metadata identity can corroborate the record, but cannot supply a different buyer or seller.
   requireMatch(body.metadata?.buyerDid === (checkout.buyerDid || undefined));
   requireMatch(body.metadata?.sellerDid === undefined || body.metadata.sellerDid === checkout.sellerDid);
@@ -50,7 +53,7 @@ function validatePayment(body: PaidNotification, checkout: Checkout): void {
 
 function validateListing(listing: Listing, checkout: Checkout): void {
   requireMatch(listing.sellerDid === checkout.sellerDid);
-  requireMatch(listing.price === checkout.unitPrice && listing.currency === checkout.currency);
+  requireMatch(listing.price === checkout.unitPrice && currenciesMatch(listing.currency, checkout.currency));
   requireMatch(Number.isSafeInteger(checkout.quantity) && checkout.quantity > 0);
   const expectedAmount = listing.price * checkout.quantity;
   requireMatch(Number.isSafeInteger(expectedAmount) && expectedAmount > 0 && expectedAmount === checkout.amountCents);
