@@ -27,7 +27,7 @@ export interface PendingCheckout {
   amountCents: number;
   /** The payee chain declared at checkout (dollars); settlement posts exactly this. */
   chain: PayeeChainEntry[];
-  /** ISO timestamp the entry was recorded, used for pruning. */
+  /** ISO timestamp the checkout was recorded. */
   at: string;
 }
 

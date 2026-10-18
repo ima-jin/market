@@ -55,7 +55,7 @@ beforeEach(() => {
   mocks.fetchNodeSelf.mockResolvedValue(null);
   mocks.isHardIdentity.mockResolvedValue(true);
   mocks.getAppServiceToken.mockResolvedValue('market-service-token');
-  mocks.fetch.mockResolvedValue(Response.json({ url: 'https://checkout.test/s', id: 'cs_1' }));
+  mocks.fetch.mockResolvedValue(Response.json({ url: 'https://checkout.test/s', id: 'cs_1', transactionId: 'tx_1' }));
 });
 
 afterEach(() => {

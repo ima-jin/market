@@ -294,7 +294,7 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
   ];
 
   describe.each(['stripe-byo', undefined])('refusals on rail %s', (rail) => {
-    it.each(invalidNotifications)('rejects $label before any fulfillment side effect', async ({ label: _label, ...override }) => {
+    it.each(invalidNotifications)('rejects $label before any fulfillment side effect', async (override) => {
       dbState.queue([CHECKOUT], [LISTING]);
       expect((await hook({ ...PAID, rail, ...override })).status).toBe(400);
       expectNoFulfillment();
@@ -307,7 +307,7 @@ describe('POST /api/webhook — bound fulfillment (#30)', () => {
       { label: 'missing DB currency', currency: null },
       { label: 'insufficient stock', quantity: 0 },
       { label: 'unavailable listing', status: 'sold' },
-    ])('rejects $label', async ({ label: _label, ...override }) => {
+    ])('rejects $label', async (override) => {
       dbState.queue([CHECKOUT], [{ ...LISTING, ...override }]);
       expect((await hook({ ...PAID, rail })).status).toBe(400);
       expectNoFulfillment();

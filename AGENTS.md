@@ -218,7 +218,7 @@ Full text: `ima-jin/conventions/ISSUE-CONVENTIONS.md`. This §7 is kept in sync 
   and non-fatal to user requests. Settlement does not depend on it: market settles its own purchases through
   pay's registered-app contract — it mints its own app-service token (`src/lib/app-token.ts`), checks out with a
   declared payee chain (`src/lib/settle.ts`), remembers the kernel payment per Stripe session
-  (`src/lib/pending-checkout.ts`, in `listings.metadata`), and settles from `POST /api/webhook`, which verifies kernel Ed25519 signatures
+  (`src/lib/pending-checkout.ts`, in the server-only `checkouts` ledger), and settles from `POST /api/webhook`, which verifies kernel Ed25519 signatures
   with `verifyKernelWebhook` bound to `IMAJIN_APP_DID` before any business processing. Card payments are charged on the seller's OWN Stripe account (no Stripe
   Connect): a payment the kernel already settled there arrives with `rail: stripe-byo`, and that notification IS the
   settlement — the webhook records the receipt and never calls `/pay/api/settle` (which refuses such a payment). A

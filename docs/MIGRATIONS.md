@@ -51,6 +51,30 @@ kernel's shared `migrations/0001_seed.sql` (ima-jin/imajin-ai#2509): `market.lis
 - Existing data is not moved by this repo: this step only defines the schema. Cut-over of live
   rows is a separate step of ima-jin/imajin-ai#1989.
 
+`migrations/0001_checkout_ownership.sql` adds `market.checkouts` using guarded
+`CREATE TABLE IF NOT EXISTS`, including its foreign key and unique constraints. It can be
+reapplied directly without losing rows. This server-only ledger records every hosted checkout
+(including no-chain/BYO purchases), with unique Stripe session, kernel transaction and paid
+payment IDs. Seller-editable listing metadata is never used as checkout ownership.
+
+Fulfillment locks the checkout and listing, requires the signed top-level `sellerDid`, and
+checks signed paid amount/currency against the recorded quantity, price and current DB listing.
+The permanent fulfillment claim and inventory decrement commit in one transaction. Legacy
+metadata-only checkouts, missing attestations, changed seller/price/currency, and insufficient
+stock fail closed before inventory, receipt, settlement or funded event side effects. A
+freshly signed redelivery cannot decrement stock or emit a purchase twice, even if the seller
+replaces listing metadata. Unlimited (`quantity = null`) listings remain available.
+
+The webhook requires attested seller information on every rail; it does not infer a missing
+top-level seller from caller metadata on older/platform notifications. A buyer must start a
+new checkout after the ledger migration rather than reuse a legacy unbound URL. As before,
+external settlement/receipt and notification failures after inventory commits are non-fatal;
+the fulfillment marker provides at-most-once inventory/event attempts, not guaranteed delivery
+of those external effects.
+
+CI runs `scripts/__tests__/fulfillment.test.ts` against real Postgres with independent pooled
+connections to verify concurrency, cross-session/payment uniqueness, rollback and DDL replay.
+
 ## Baselining an existing database (prod/dev)
 
 Prod and dev already hold the `market` schema (created by the kernel's shared seed). Running `pnpm db:migrate` there
